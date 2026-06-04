@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>טופס זמינות מדריך - דרך הים</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#f0f4f8;--card:#fff;--border:#d1d9e6;--primary:#2563eb;--primary-light:#dbeafe;--primary-dark:#1d4ed8;--text:#1e293b;--text-light:#64748b;--success:#16a34a;--success-bg:#dcfce7;--accent:#7c3aed;--warning:#d97706;--warning-bg:#fef3c7}
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text);direction:rtl;min-height:100vh;padding:0}
+.top-bar{background:rgb(14,50,104);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px}
+.top-bar-text{flex:1;text-align:center}
+.top-bar-logo{height:78px;width:auto;flex:0 0 auto;display:block}
+.top-bar h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.top-bar p{font-size:13px;opacity:.85}
+@media(max-width:640px){
+  .top-bar{padding:10px 14px;gap:10px}
+  .top-bar-logo{height:60px}
+  .top-bar h1{font-size:17px;line-height:1.2}
+  .top-bar p{font-size:11px}
+}
+.container{max-width:900px;margin:0 auto;padding:16px}
+.card{background:var(--card);border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.06);border:1px solid var(--border);padding:20px;margin-bottom:16px}
+.card h2{font-size:16px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.card h2 .step{background:var(--primary);color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.form-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.form-group{display:flex;flex-direction:column;gap:5px;flex:1;min-width:200px}
+.form-group label{font-size:13px;font-weight:600;color:var(--text-light)}
+input,select,textarea{padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;transition:border .15s;background:#fff;direction:rtl;width:100%}
+input:focus,select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 22px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-dark)}
+.btn-success{background:var(--success);color:#fff}.btn-success:hover{background:#15803d}
+.btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text)}.btn-outline:hover{border-color:var(--primary);color:var(--primary)}
+.btn-accent{background:var(--accent);color:#fff}.btn-accent:hover{background:#6d28d9}
+.btn-warning{background:var(--warning);color:#fff}.btn-warning:hover{background:#b45309}
+.btn-block{width:100%}
+.btn-lg{padding:14px 28px;font-size:16px;border-radius:12px}
+
+/* Import zone */
+.import-zone{border:2px dashed var(--border);border-radius:12px;padding:20px;text-align:center;cursor:pointer;transition:all .2s;background:#fafbff;position:relative}
+.import-zone:hover,.import-zone.drag-over{border-color:var(--primary);background:var(--primary-light)}
+.import-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.import-zone .icon{font-size:32px;margin-bottom:8px}
+.import-zone .title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px}
+.import-zone .sub{font-size:12px;color:var(--text-light)}
+.import-success{background:var(--success-bg);border:1.5px solid #86efac;border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px;font-size:13px;color:#166534;margin-top:10px}
+.import-error{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:12px 16px;font-size:13px;color:#dc2626;margin-top:10px}
+.import-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-light);margin-top:8px}
+.import-legend-item{display:flex;align-items:center;gap:5px}
+.import-legend-dot{width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.1)}
+
+/* Availability Grid (HTML <table> for reliable sticky headers on mobile) */
+.grid-wrapper{overflow:auto;max-height:60vh;-webkit-overflow-scrolling:touch;margin:0 -8px;padding:0;border-radius:8px;position:relative}
+.avail-table{border-collapse:separate;border-spacing:3px;font-size:12px;width:max-content;min-width:100%}
+.avail-table th,.avail-table td{padding:8px 4px;text-align:center;border-radius:6px;border:1.5px solid transparent;font-weight:500;user-select:none;-webkit-user-select:none;background-clip:padding-box;cursor:pointer}
+/* Hour headers (top row) - sticky to top */
+.avail-table thead th{background:#f8fafc;font-weight:700;color:var(--text);cursor:default;font-size:11px;padding:6px 4px;position:sticky;top:0;z-index:10;min-width:44px}
+/* Day header column (right side in RTL) - sticky to right */
+.avail-table td.day-header{background:#eef2ff;color:var(--primary);font-weight:700;cursor:pointer;position:sticky;right:0;z-index:9;width:70px;min-width:70px;max-width:70px}
+.avail-table td.day-header:hover{background:var(--primary-light)}
+/* Corner cell (top-right "תאריך") - sticky on BOTH axes, highest z-index */
+.avail-table thead th.corner-cell{position:sticky;top:0;right:0;z-index:20;background:#f1f5f9;width:70px;min-width:70px}
+/* Cell states */
+.avail-table td.available{background:#c6efce;color:#276221;border-color:#70b56e}
+.avail-table td.unavailable{background:#ffc7ce;color:#9c0006;border-color:#e57373}
+.avail-table td.work{background:#d9d9d9;color:#444;border-color:#aaa}
+.avail-table td:not(.day-header):hover{transform:scale(1.08);box-shadow:0 2px 8px rgba(0,0,0,.1)}
+
+/* Quick actions */
+.quick-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.quick-btn{padding:7px 14px;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;border:1.5px solid var(--border);background:#fff;color:var(--text);transition:all .15s}
+.quick-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-light)}
+
+/* Legend */
+.legend{display:flex;gap:16px;align-items:center;margin-bottom:12px;font-size:12px;color:var(--text-light);flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:4px}
+.legend-dot{width:14px;height:14px;border-radius:4px;border:1px solid}
+
+/* Summary */
+.summary-bar{background:var(--primary-light);border-radius:10px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.summary-item{text-align:center}
+.summary-item .num{font-size:22px;font-weight:700;color:var(--primary)}
+.summary-item .lbl{font-size:11px;color:var(--text-light)}
+
+/* Notes */
+.notes-area{width:100%;min-height:80px;resize:vertical}
+
+/* Complete screen */
+.complete-screen{text-align:center;padding:40px 20px}
+.complete-screen .check{width:80px;height:80px;background:var(--success-bg);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:40px}
+.complete-screen h2{font-size:22px;margin-bottom:8px;color:var(--success)}
+.complete-screen p{color:var(--text-light);margin-bottom:20px;font-size:14px}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:12px 24px;border-radius:10px;font-size:13px;z-index:200;box-shadow:0 10px 30px rgba(0,0,0,.2);animation:slideUp .3s ease}
+.version-tag{position:fixed;bottom:8px;left:8px;background:rgba(15,23,42,.55);color:#fff;font-size:10px;padding:3px 8px;border-radius:6px;z-index:50;font-family:monospace;pointer-events:none;opacity:.7}
+@keyframes slideUp{from{transform:translateX(-50%) translateY(20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+
+/* Drag painting */
+.painting .avail-table td:not(.day-header):not(.corner-cell){cursor:crosshair}
+
+/* Fullscreen button (lives inside the top-bar, scrolls with header naturally) */
+.top-bar-fs{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;width:36px;height:36px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;transition:.15s}
+.top-bar-fs:hover{background:rgba(255,255,255,.22)}
+@media(max-width:640px){.top-bar-fs{width:32px;height:32px;font-size:14px}}
+
+/* Modal overlay shared by settings dialog */
+.share-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:300;animation:fadeIn .18s ease;padding:16px}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.share-modal{background:#fff;border-radius:16px;padding:24px 22px;max-width:360px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.share-modal h3{font-size:18px;margin-bottom:6px;color:var(--text);font-weight:700}
+.share-modal .sub{font-size:13px;color:var(--text-light);margin-bottom:16px}
+.share-modal .share-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px 20px;border-radius:10px;font-size:15px;font-weight:600;border:none;cursor:pointer;margin-bottom:10px;transition:.15s;font-family:inherit}
+.share-modal .share-btn-file{background:#22c55e;color:#fff}
+.share-modal .share-btn-file:hover{background:#16a34a}
+.share-modal .share-btn-cancel{background:transparent;color:var(--text-light);border:1.5px solid var(--border);margin-top:6px;margin-bottom:0}
+.share-modal .share-btn-cancel:hover{background:#f8fafc;color:var(--text)}
+
+/* Restore notice (shown when localStorage had saved data) */
+.restore-notice{background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:10px;padding:12px 14px;margin-bottom:16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:#065f46}
+.restore-notice .restore-actions{display:flex;gap:6px;flex-wrap:wrap}
+.restore-notice button{background:#fff;border:1px solid #6ee7b7;color:#065f46;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
+.restore-notice button:hover{background:#d1fae5}
+
+/* Rule builder */
+.rule-builder{background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #fcd34d;border-radius:10px;padding:12px 14px;margin-bottom:14px}
+.rule-title{font-size:13px;font-weight:700;color:#92400e;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.rule-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.rule-row select{flex:0 0 auto;width:auto;padding:7px 10px;font-size:13px;min-width:100px;border:1.5px solid #fcd34d;background:#fff}
+.rule-row .rule-lbl{font-size:12px;color:#78350f;font-weight:600}
+.rule-row .btn-apply{background:#d97706;color:#fff;padding:8px 18px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;transition:.15s}
+.rule-row .btn-apply:hover{background:#b45309}
+.rule-row .btn-apply:disabled{opacity:.5;cursor:not-allowed}
+
+/* Mobile */
+@media(max-width:640px){
+  .container{padding:10px}
+  .form-row{flex-direction:column}
+  .form-group{min-width:100%}
+  .summary-bar{flex-direction:column;text-align:center}
+  .avail-cell{padding:6px 2px;font-size:10px}
+  .quick-actions{justify-content:center}
+  .rule-row{gap:6px}
+  .rule-row select{flex:1 1 calc(50% - 6px);min-width:0}
+  .rule-row .btn-apply{width:100%}
+  /* Show import card on mobile (JSON load is useful), but hide Excel-specific bits */
+  .excel-only-line{display:none}
+  .import-card .icon{font-size:26px}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useCallback, useRef, useEffect } = React;
+
+const DAYS_HEB = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+const HOURS_RANGE = Array.from({length:15},(_,i)=>{const h=7+i; return `${h.toString().padStart(2,'0')}:00`;});
+// End-of-slot times for rule builder "to" selector (08:00 .. 22:00)
+const HOURS_END = Array.from({length:15},(_,i)=>{const h=8+i; return `${h.toString().padStart(2,'0')}:00`;});
+
+// Detect mobile/touch devices for platform-specific behaviors (mailto vs gmail web, etc.)
+const isMobileDevice = () => typeof navigator!=='undefined' && /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry/i.test(navigator.userAgent||'');
+
+// Version label (shown in bottom-left corner)
+const FORM_VERSION = 'v15.1';
+
+// localStorage key for form auto-save
+const STORAGE_KEY = 'instructor_availability_v1';
+
+// Apps Script web-app URL for auto-emailing the form with attachment.
+// PASTE YOUR DEPLOYMENT URL HERE (looks like:
+//   https://script.google.com/macros/s/AKfycbXXXXXXXXX/exec )
+// Leave empty to disable webhook (form falls back to manual download + email).
+const WEBHOOK_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbxkBO1eWZDPxXcSqusM6lA6CNmBbd_j6wnX1dDjMZE3xNWacRXJrSWsSz_Opg9oq_ER/exec';
+// Returns the configured webhook URL (edit WEBHOOK_URL_DEFAULT above to change it)
+const getWebhookUrl = () => (WEBHOOK_URL_DEFAULT||'').trim();
+
+// ---- Cycle helper: false/undefined -> true -> 'work' -> false ----
+function nextState(cur){
+  if(cur===true) return 'work';
+  if(cur==='work') return false;
+  return true; // undefined / false / anything else
+}
+
+// ---- JSON form import parser ----
+// Loads the fields from a previously-generated availability JSON file
+function parseJsonForm(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      try{
+        const data=JSON.parse(e.target.result);
+        if(data.type!=='instructor_availability'){
+          reject(new Error('הקובץ אינו טופס זמינות תקין'));
+          return;
+        }
+        resolve(data);
+      }catch(err){ reject(err); }
+    };
+    reader.onerror=reject;
+    reader.readAsText(file);
+  });
+}
+
+// ---- Excel import parser ----
+// Expects format: row=hour (700,800,...2100), col=day (1..31), value: 1=available, "Work"=work, "NoGo"/other=unavailable
+function parseExcelAvailability(file, targetMonth) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        // Try first sheet, or sheet named "זמינות"
+        const sheetName = wb.SheetNames.find(n => n.includes('זמינות')) || wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+        // Row 0 = headers (day numbers 1..31)
+        // Rows 1+ = hour rows (700, 800, ...)
+        const headerRow = rows[0]; // [null, 1, 2, 3, ...]
+        const slots = {};
+        let importedCount = 0;
+        let workCount = 0;
+
+        for (let ri = 1; ri < rows.length; ri++) {
+          const row = rows[ri];
+          const hourRaw = row[0];
+          if (!hourRaw || isNaN(Number(hourRaw))) continue;
+          const hourNum = Number(hourRaw);
+          if (hourNum < 700 || hourNum > 2100) continue;
+          // Convert 700 -> "07:00", 1300 -> "13:00"
+          const hh = Math.floor(hourNum / 100).toString().padStart(2, '0');
+          const hourKey = `${hh}:00`;
+          if (!HOURS_RANGE.includes(hourKey)) continue;
+
+          for (let ci = 1; ci < row.length; ci++) {
+            const dayNum = headerRow[ci];
+            if (!dayNum || isNaN(Number(dayNum))) continue;
+            const day = Number(dayNum);
+            const val = row[ci];
+            const key = `${day}_${hourKey}`;
+            if (val === 1 || val === '1') {
+              slots[key] = true;
+              importedCount++;
+            } else if (typeof val === 'string' && val.toLowerCase() === 'work') {
+              slots[key] = 'work';
+              workCount++;
+            }
+            // NoGo / null = leave as false (not set)
+          }
+        }
+        resolve({ slots, importedCount, workCount, sheetName });
+      } catch(err) {
+        reject(err);
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function App(){
+  const [step,setStep]=useState(1);
+  const [name,setName]=useState('');
+  const [phone,setPhone]=useState('');
+  const [email,setEmail]=useState('');
+  const [month,setMonth]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}`;});
+  const [notes,setNotes]=useState('');
+  const [slots,setSlots]=useState({});
+  const [toast,setToast]=useState(null);
+  const [painting,setPainting]=useState(false);
+  const [paintMode,setPaintMode]=useState(null);
+  const [importStatus,setImportStatus]=useState(null); // null | {ok, msg} | {err, msg}
+  const [dragOver,setDragOver]=useState(false);
+  // Rule builder state
+  const [ruleDay,setRuleDay]=useState('all');
+  const [ruleFrom,setRuleFrom]=useState('07:00');
+  const [ruleTo,setRuleTo]=useState('22:00');
+  const [ruleStatus,setRuleStatus]=useState('available');
+  // Restore notice when localStorage data was loaded on mount
+  const [restoreNotice,setRestoreNotice]=useState(null); // null | { savedAt:'ISO' }
+
+  const gridRef=useRef(null);
+  const fileInputRef=useRef(null);
+  const hasLoadedRef=useRef(false);
+
+  // Load saved form data from localStorage on mount
+  useEffect(()=>{
+    try{
+      const raw=localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        const data=JSON.parse(raw);
+        if(data.name) setName(data.name);
+        if(data.phone) setPhone(data.phone);
+        if(data.email) setEmail(data.email);
+        if(data.month) setMonth(data.month);
+        if(data.notes) setNotes(data.notes);
+        if(data.slots && typeof data.slots==='object') setSlots(data.slots);
+        if(data.savedAt) setRestoreNotice({savedAt:data.savedAt});
+      }
+    }catch(e){ /* ignore corrupt storage */ }
+    hasLoadedRef.current=true;
+  },[]);
+
+  // Auto-save form data to localStorage on relevant changes (after initial load)
+  useEffect(()=>{
+    if(!hasLoadedRef.current) return;
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        name, phone, email, month, notes, slots,
+        savedAt:new Date().toISOString()
+      }));
+    }catch(e){ /* storage full or disabled, ignore */ }
+  },[name,phone,email,month,notes,slots]);
+
+  const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),2800);};
+
+  const toggleFullscreen=()=>{
+    if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{});}
+    else{document.exitFullscreen();}
+  };
+
+  const daysInMonth = useMemo(()=>{
+    if(!month)return[];
+    const [y,m]=month.split('-').map(Number);
+    const count=new Date(y,m,0).getDate();
+    return Array.from({length:count},(_,i)=>{
+      const d=new Date(y,m-1,i+1);
+      return {date:i+1,dayOfWeek:d.getDay(),dayName:DAYS_HEB[d.getDay()]};
+    });
+  },[month]);
+
+  const monthName = useMemo(()=>{
+    if(!month)return'';
+    const [y,m]=month.split('-').map(Number);
+    return new Date(y,m-1,1).toLocaleDateString('he-IL',{month:'long',year:'numeric'});
+  },[month]);
+
+  // ---- Import handler ----
+  const handleImportFile = async (file) => {
+    if (!file) return;
+    setImportStatus(null);
+    const fname=(file.name||'').toLowerCase();
+    // Detect JSON (previously-saved form) vs Excel
+    if(fname.endsWith('.json')){
+      try{
+        const data=await parseJsonForm(file);
+        if(data.instructor){
+          if(data.instructor.name) setName(data.instructor.name);
+          if(data.instructor.phone) setPhone(data.instructor.phone);
+          if(data.instructor.email) setEmail(data.instructor.email);
+        }
+        if(data.month) setMonth(data.month);
+        if(data.notes) setNotes(data.notes);
+        if(data.availability && typeof data.availability==='object') setSlots(data.availability);
+        const totalSlots=Object.values(data.availability||{}).filter(v=>v===true||v==='work').length;
+        setImportStatus({ok:true, msg:`טופס קודם נטען: ${data.instructor?.name||''} - ${data.month||''} (${totalSlots} שעות מסומנות)`});
+        showToast(`✅ נטען טופס JSON קודם`);
+      }catch(e){
+        setImportStatus({err:true, msg:`שגיאה בקריאת ה-JSON: ${e.message}`});
+      }
+      return;
+    }
+    // Otherwise treat as Excel
+    try {
+      const result = await parseExcelAvailability(file, month);
+      if (result.importedCount === 0 && result.workCount === 0) {
+        setImportStatus({err: true, msg: 'לא נמצאו נתוני זמינות בקובץ. ודא שהפורמט תואם (שורות=שעות, עמודות=ימים, ערכים: 1/Work/NoGo).'});
+        return;
+      }
+      setSlots(result.slots);
+      setImportStatus({ok: true, msg: `יובאו ${result.importedCount} שעות זמינות ו-${result.workCount} שעות עבודה מגיליון "${result.sheetName}"`});
+      showToast(`✅ יובאו ${result.importedCount} שעות מהאקסל`);
+    } catch(e) {
+      setImportStatus({err: true, msg: `שגיאה בקריאת הקובץ: ${e.message}`});
+    }
+  };
+
+  const onFileInput = (e) => { handleImportFile(e.target.files[0]); e.target.value=''; };
+  const onDrop = (e) => { e.preventDefault(); setDragOver(false); handleImportFile(e.dataTransfer.files[0]); };
+
+  // ---- Slot helpers ----
+  const setSlotValue=(date,hour,value)=>{
+    const key=`${date}_${hour}`;
+    setSlots(prev=>({...prev,[key]:value}));
+  };
+
+  const toggleDay=(date)=>{
+    const allOn=HOURS_RANGE.every(h=>slots[`${date}_${h}`]===true);
+    const updates={};
+    HOURS_RANGE.forEach(h=>{updates[`${date}_${h}`]=allOn?false:true;});
+    setSlots(prev=>({...prev,...updates}));
+  };
+
+  const fillWeekdays=()=>{
+    const updates={};
+    daysInMonth.forEach(d=>{HOURS_RANGE.forEach(h=>{updates[`${d.date}_${h}`]=true;});});
+    setSlots(prev=>({...prev,...updates}));
+    showToast('כל הימים סומנו כזמינים');
+  };
+  const fillMornings=()=>{
+    const updates={};
+    HOURS_RANGE.filter(h=>parseInt(h)<13).forEach(h=>{daysInMonth.forEach(d=>{updates[`${d.date}_${h}`]=true;});});
+    setSlots(prev=>({...prev,...updates}));
+    showToast('בקרים סומנו');
+  };
+  const fillAfternoons=()=>{
+    const updates={};
+    HOURS_RANGE.filter(h=>parseInt(h)>=13).forEach(h=>{daysInMonth.forEach(d=>{updates[`${d.date}_${h}`]=true;});});
+    setSlots(prev=>({...prev,...updates}));
+    showToast('אחה"צ סומנו');
+  };
+  const clearAll=()=>{setSlots({});showToast('הזמינות נוקתה');};
+
+  // Apply weekly rule to all matching days in the month
+  const applyRule=()=>{
+    const fromHour=parseInt(ruleFrom);
+    const toHour=parseInt(ruleTo);
+    if(toHour<=fromHour){
+      showToast('⚠️ שעת סיום חייבת להיות אחרי שעת התחלה');
+      return;
+    }
+    const targetVal = ruleStatus==='available' ? true : ruleStatus==='work' ? 'work' : false;
+    const updates={};
+    let cellCount=0;
+    let dayCount=0;
+    daysInMonth.forEach(d=>{
+      if(ruleDay!=='all' && d.dayOfWeek!==Number(ruleDay)) return;
+      dayCount++;
+      HOURS_RANGE.forEach(h=>{
+        const hh=parseInt(h);
+        if(hh>=fromHour && hh<toHour){
+          updates[`${d.date}_${h}`]=targetVal;
+          cellCount++;
+        }
+      });
+    });
+    if(cellCount===0){
+      showToast('לא נמצאו ימים תואמים בחודש זה');
+      return;
+    }
+    setSlots(prev=>({...prev,...updates}));
+    const dayLabel = ruleDay==='all' ? 'כל הימים' : `ימי ${DAYS_HEB[Number(ruleDay)]}`;
+    const statusLabel = ruleStatus==='available' ? 'זמין' : ruleStatus==='work' ? 'עובד' : 'לא זמין';
+    showToast(`✅ הוחלה חוקיות: ${dayLabel} ${ruleFrom}-${ruleTo} → ${statusLabel} (${dayCount} ימים, ${cellCount} שעות)`);
+  };
+
+  const availCount=Object.values(slots).filter(v=>v===true).length;
+  const workCount=Object.values(slots).filter(v=>v==='work').length;
+  const availHours=availCount;
+
+  // Drag painting:
+  // Left click cycles: unavailable -> available -> work -> unavailable
+  // While dragging, all cells touched are painted with the same target state.
+  // Right click cycles: work <-> unavailable (independent of left-click cycle)
+  const handlePointerDown=(date,hour,e)=>{
+    e.preventDefault();
+    // On mobile, defocus any active input so the keyboard hides and scroll stays put
+    if(document.activeElement && document.activeElement.tagName==='INPUT'){
+      document.activeElement.blur();
+    }
+    const key=`${date}_${hour}`;
+    if(e.button===2){
+      // Right click: toggle between work and unavailable + drag-paint
+      const newVal=slots[key]==='work'?false:'work';
+      setPainting(true);
+      setPaintMode(newVal);
+      setSlotValue(date,hour,newVal);
+      return;
+    }
+    // Left click: cycle to next state
+    const cur=slots[key];
+    const newVal=nextState(cur);
+    setPainting(true);
+    setPaintMode(newVal);
+    setSlotValue(date,hour,newVal);
+  };
+  const handlePointerEnter=(date,hour)=>{
+    if(painting) setSlotValue(date,hour,paintMode);
+  };
+  const handlePointerUp=()=>{setPainting(false);setPaintMode(null);};
+
+  useEffect(()=>{
+    const up=()=>{setPainting(false);setPaintMode(null);};
+    window.addEventListener('pointerup',up);
+    window.addEventListener('pointercancel',up);
+    return ()=>{window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);};
+  },[]);
+
+  // Build the availability JSON and return blob+filename+File object
+  const buildAvailabilityFile=()=>{
+    const data={
+      type:'instructor_availability',version:1,
+      submittedAt:new Date().toISOString(),
+      instructor:{name,phone,email},
+      month,availability:slots,notes,
+      summary:{totalSlots:availCount,totalHours:availHours,workSlots:workCount}
+    };
+    const filename=`availability-${name.replace(/\s+/g,'-')}-${month}.json`;
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const file=new File([blob],filename,{type:'application/json'});
+    return {data,blob,filename,file};
+  };
+
+  const downloadFile=()=>{
+    const {blob,filename}=buildAvailabilityFile();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=filename;
+    a.click();
+  };
+
+  const generateFile=()=>{
+    downloadFile();
+    setStep(3);
+  };
+
+  const sendEmailGmail=()=>{
+    const subject=`טופס זמינות ${monthName} - ${name}`;
+    const bodyLines=[`שלום,`,``,`מצורף טופס הזמינות שלי לחודש ${monthName}.`,``,`שם: ${name}`];
+    if(phone) bodyLines.push(`טלפון: ${phone}`);
+    bodyLines.push(`סה"כ ${availHours} שעות זמינות${workCount?` ו-${workCount} שעות עבודה`:''}`);
+    bodyLines.push(``);
+    if(notes) bodyLines.push(`הערות: ${notes}`,``);
+    bodyLines.push(`📎 נא לצרף את הקובץ שהורד למייל זה.`);
+    bodyLines.push(``,`תודה,`,name);
+    const body=bodyLines.join('\n');
+    const su=encodeURIComponent(subject);
+    const bo=encodeURIComponent(body);
+    const to='school@yamonline.co.il';
+    if(isMobileDevice()){
+      // On mobile use mailto: which opens the default mail app (Gmail / Outlook / etc.)
+      // mailto: cannot pre-attach a file, so the user attaches the already-downloaded file manually.
+      window.location.href=`mailto:${to}?subject=${su}&body=${bo}`;
+      showToast('📧 נפתחת אפליקציית המייל - צרף את הקובץ שירד ושלח');
+    }else{
+      // On desktop use Gmail web compose (works reliably)
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${su}&body=${bo}`,'_blank');
+      showToast('📧 נפתח Gmail - צרף את הקובץ ושלח');
+    }
+  };
+
+
+  // Validate before submit — show explicit error message instead of disabling buttons
+  const validateBeforeSubmit=()=>{
+    const missing=[];
+    if(!name.trim()) missing.push('שם');
+    if(!month) missing.push('חודש');
+    if(missing.length){
+      const msg = missing.length===2 ? '⚠️ חובה למלא שם וחודש' : `⚠️ חובה למלא ${missing[0]}`;
+      alert(msg);
+      return false;
+    }
+    if(availCount===0){
+      alert('⚠️ יש לסמן לפחות שעה אחת זמינה');
+      return false;
+    }
+    return true;
+  };
+
+  // Send email silently via webhook (no manual fallback). Returns true if webhook was attempted.
+  const sendEmailSilently=async()=>{
+    const webhook=getWebhookUrl();
+    if(!webhook) return false;
+    try{
+      const {data,filename}=buildAvailabilityFile();
+      const subject=`טופס זמינות ${monthName} - ${name}`;
+      const bodyLines=[`שלום,`,``,`מצורף טופס הזמינות שלי לחודש ${monthName}.`,``,`שם: ${name}`];
+      if(phone) bodyLines.push(`טלפון: ${phone}`);
+      bodyLines.push(`סה"כ ${availHours} שעות זמינות${workCount?` ו-${workCount} שעות עבודה`:''}`);
+      bodyLines.push(``);
+      if(notes) bodyLines.push(`הערות: ${notes}`,``);
+      bodyLines.push(`תודה,`,name);
+      const body=bodyLines.join('\n');
+      const jsonStr=JSON.stringify(data,null,2);
+      const base64=btoa(unescape(encodeURIComponent(jsonStr)));
+      await fetch(webhook,{
+        method:'POST',
+        mode:'no-cors',
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({to:'school@yamonline.co.il',subject,body,attachment:base64,attachmentName:filename})
+      });
+      return true;
+    }catch(e){
+      console.error('Silent email failed',e);
+      return false;
+    }
+  };
+
+  // Submit flow: validate → push to scheduler inbox (localStorage) → confirmation screen.
+  // ALSO sends email automatically in the background (if Apps Script webhook is configured),
+  // so the form is guaranteed to reach the school inbox even if the instructor closes the tab.
+  const handleSubmitForm=()=>{
+    if(!validateBeforeSubmit()) return;
+    try{
+      const {data}=buildAvailabilityFile();
+      const inboxItem={
+        id:Math.random().toString(36).substr(2,9),
+        status:'pending',
+        receivedAt:new Date().toISOString(),
+        fileName:`availability-${name.replace(/\s+/g,'-')}-${month}.json`,
+        data
+      };
+      const existing=JSON.parse(localStorage.getItem('sch_inbox')||'[]');
+      // Replace any pending item from the same instructor for the same month, otherwise prepend
+      const keyMatch=(it)=>it.data?.instructor?.name===name && it.data?.month===month && it.status==='pending';
+      const filtered=existing.filter(it=>!keyMatch(it));
+      filtered.unshift(inboxItem);
+      localStorage.setItem('sch_inbox',JSON.stringify(filtered));
+      // Notify any open scheduler tab in real time (storage event fires on OTHER tabs;
+      // we also dispatch a manual event for same-tab listeners just in case)
+      try{ window.dispatchEvent(new StorageEvent('storage',{key:'sch_inbox',newValue:JSON.stringify(filtered)})); }catch(e){}
+    }catch(e){
+      console.error('Failed to save to sch_inbox',e);
+    }
+    setStep(3);
+    // Fire-and-forget auto-email via webhook (does nothing if webhook not configured)
+    if(getWebhookUrl()){
+      sendEmailSilently().then(ok=>{
+        if(ok) showToast('✅ הטופס נשלח אוטומטית למנהל במייל');
+        else showToast('⚠️ שליחת המייל האוטומטית נכשלה - לחץ "הורד עותק למכשיר" ושלח ידנית');
+      });
+    }
+  };
+
+  // Email flow:
+  // 1) If a webhook URL is configured (Apps Script), POST the form there - that script
+  //    sends the email with the JSON file attached automatically.
+  // 2) Otherwise on mobile try Web Share API (attaches file when user picks an email app).
+  // 3) Otherwise fall back to download + open mail client (manual attach).
+  const sendEmailWithFile=async()=>{
+    const {data,file,filename}=buildAvailabilityFile();
+    const subject=`טופס זמינות ${monthName} - ${name}`;
+    const bodyLines=[`שלום,`,``,`מצורף טופס הזמינות שלי לחודש ${monthName}.`,``,`שם: ${name}`];
+    if(phone) bodyLines.push(`טלפון: ${phone}`);
+    bodyLines.push(`סה"כ ${availHours} שעות זמינות${workCount?` ו-${workCount} שעות עבודה`:''}`);
+    bodyLines.push(``);
+    if(notes) bodyLines.push(`הערות: ${notes}`,``);
+    bodyLines.push(`תודה,`,name);
+    const body=bodyLines.join('\n');
+    const to='school@yamonline.co.il';
+
+    const webhook=getWebhookUrl();
+    if(webhook){
+      // Send via Apps Script — auto-attaches the JSON file to the email
+      try{
+        const jsonStr=JSON.stringify(data,null,2);
+        // base64 encode (UTF-8 safe)
+        const base64=btoa(unescape(encodeURIComponent(jsonStr)));
+        showToast('📧 שולח את הטופס במייל...');
+        await fetch(webhook,{
+          method:'POST',
+          mode:'no-cors',
+          headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body:JSON.stringify({to,subject,body,attachment:base64,attachmentName:filename})
+        });
+        showToast('✅ המייל נשלח עם הקובץ מצורף אוטומטית');
+        return;
+      }catch(e){
+        console.error('Webhook failed',e);
+        showToast('⚠️ שליחה אוטומטית נכשלה - מנסה דרך אחרת');
+        // fall through
+      }
+    }
+
+    // On mobile try Web Share API which can attach the file to the chosen email app
+    if(isMobileDevice() && navigator.canShare && navigator.canShare({files:[file]})){
+      try{
+        await navigator.share({files:[file],title:subject,text:body});
+        showToast('✅ נפתח שיתוף - בחר אפליקציית מייל ושלח');
+        return;
+      }catch(e){
+        if(e.name==='AbortError') return;
+      }
+    }
+    // Desktop / non-supporting fallback: download the file and open mail client
+    downloadFile();
+    const su=encodeURIComponent(subject);
+    const bo=encodeURIComponent(body+'\n\n📎 גרור את הקובץ '+filename+' שזה עתה ירד אל המייל הזה.');
+    if(isMobileDevice()){
+      window.location.href=`mailto:${to}?subject=${su}&body=${bo}`;
+    }else{
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${su}&body=${bo}`,'_blank');
+    }
+    showToast('📥 הקובץ הורד - גרור אותו אל המייל שנפתח');
+  };
+
+
+  // Reset all form data and clear localStorage
+  const handleResetAll=()=>{
+    if(!window.confirm('למחוק את כל הנתונים ולהתחיל טופס חדש?')) return;
+    setName(''); setPhone(''); setEmail(''); setNotes(''); setSlots({});
+    setRestoreNotice(null);
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
+    showToast('הטופס נוקה');
+    setStep(1);
+  };
+
+  const getCellClass=(val)=>{
+    if(val===true) return 'available';
+    if(val==='work') return 'work';
+    return 'unavailable';
+  };
+  const getCellLabel=(val)=>{
+    if(val===true) return '✓';
+    if(val==='work') return '⚙';
+    return '';
+  };
+
+  if(step===3){
+    return(
+      <div>
+        <div className="top-bar">
+          <img src="logo.png" alt="דרך הים" className="top-bar-logo" onError={e=>{e.target.style.display='none';}}/>
+          <div className="top-bar-text">
+            <h1>טופס זמינות מדריך - דרך הים</h1>
+          </div>
+        </div>
+        <div className="container">
+          <div className="card complete-screen">
+            <div className="check">✓</div>
+            <h2>הטופס נשלח בהצלחה!</h2>
+            <p>{getWebhookUrl()?'הטופס נשלח אוטומטית במייל למנהל. הוא יחכה לו עד שיתפנה לטפל בו.':'הטופס נשמר. לחץ על "שלח גם במייל" למטה כדי לוודא שהוא יגיע אל המנהל.'}</p>
+            <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap',marginTop:20}}>
+              <button className="btn btn-primary btn-lg" onClick={()=>{downloadFile();showToast('📥 הקובץ הורד למכשיר');}}>
+                📥 הורד עותק למכשיר
+              </button>
+              <button className="btn btn-outline btn-lg" onClick={()=>setStep(2)}>
+                ✏️ חזור לעריכה
+              </button>
+            </div>
+            <p style={{fontSize:13,color:'var(--text-light)',marginTop:18,maxWidth:520,margin:'18px auto 0'}}>
+              💾 הטופס נשמר אוטומטית בדפדפן הזה - תמיד אפשר לחזור, לראות, לערוך ולשלוח שוב.<br/>
+              📥 כדי לעבור למכשיר אחר - הורד עותק, ושם טען אותו דרך "טעינת טופס קיים" בראש הטופס.
+            </p>
+            <button className="btn btn-outline" style={{marginTop:14,fontSize:12}} onClick={handleResetAll}>
+              🗑 התחל טופס חדש (מחיקת נתונים)
+            </button>
+          </div>
+        </div>
+        <div className="version-tag">{FORM_VERSION}</div>
+      {toast&&<div className="toast">{toast}</div>}
+      </div>
+    );
+  }
+
+  return(
+    <div className={painting?'painting':''}>
+
+      <div className="top-bar">
+        <img src="logo.png" alt="דרך הים" className="top-bar-logo" onError={e=>{e.target.style.display='none';}}/>
+        <div className="top-bar-text">
+          <h1>טופס זמינות מדריך - דרך הים</h1>
+          <p>מלא את הזמינות שלך לחודש הקרוב ושלח למנהל השיבוצים</p>
+        </div>
+        <button className="top-bar-fs" onClick={toggleFullscreen} title="מסך מלא">⛶</button>
+      </div>
+      <div className="container">
+
+        {restoreNotice && (
+          <div className="restore-notice">
+            <span>💾 נטען טופס שמור מ-{new Date(restoreNotice.savedAt).toLocaleString('he-IL',{day:'numeric',month:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})}. אפשר להמשיך לערוך או להתחיל מחדש.</span>
+            <div className="restore-actions">
+              <button onClick={handleResetAll}>🗑 התחל מחדש</button>
+              <button onClick={()=>setRestoreNotice(null)}>סגור</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 1: Personal Info */}
+        <div className="card">
+          <h2><span className="step">1</span> פרטים אישיים</h2>
+          <div className="form-row">
+            <div className="form-group">
+              <label>שם מלא *</label>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="השם שלך"/>
+            </div>
+            <div className="form-group">
+              <label>טלפון</label>
+              <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="050-0000000" type="tel"/>
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>אימייל</label>
+              <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="email@example.com" type="email"/>
+            </div>
+            <div className="form-group">
+              <label>חודש *</label>
+              <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
+            </div>
+          </div>
+        </div>
+
+        {/* Import: Excel OR previously-saved JSON form */}
+        <div className="card import-card">
+          <h2><span className="step" style={{background:'#059669'}}>📥</span> טעינת טופס קיים (אופציונלי)</h2>
+          <p style={{fontSize:13,color:'var(--text-light)',marginBottom:12}}>
+            <b>טופס JSON קודם</b> (לעבור בין מכשירים): הקובץ שירד בעת השליחה, או שיתופים מטלפון אחר.<br/>
+            <span className="excel-only-line"><b>טבלת Excel</b>: זמינות מובנית בפורמט שורות=שעות, עמודות=ימים.</span>
+          </p>
+
+          <div
+            className={`import-zone${dragOver?' drag-over':''}`}
+            onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+            onDragLeave={()=>setDragOver(false)}
+            onDrop={onDrop}
+            onClick={()=>fileInputRef.current?.click()}
+          >
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xlsm,.xls,.json" onChange={onFileInput} style={{display:'none'}}/>
+            <div className="icon">📂</div>
+            <div className="title">גרור לכאן קובץ JSON של טופס קודם, או טבלת Excel</div>
+            <div className="sub">.json (טופס שמור) · <span className="excel-only-line">.xlsx / .xlsm / .xls (טבלת זמינות)</span></div>
+          </div>
+
+          <div className="import-legend excel-only-line" style={{marginTop:10}}>
+            <span style={{fontWeight:600,fontSize:12}}>ערכים מוכרים ב-Excel:</span>
+            <div className="import-legend-item">
+              <div className="import-legend-dot" style={{background:'#c6efce',borderColor:'#70b56e'}}></div>
+              <span><b>1</b> = זמין</span>
+            </div>
+            <div className="import-legend-item">
+              <div className="import-legend-dot" style={{background:'#d9d9d9',borderColor:'#aaa'}}></div>
+              <span><b>Work</b> = עובד (לא להדרכה)</span>
+            </div>
+            <div className="import-legend-item">
+              <div className="import-legend-dot" style={{background:'#ffc7ce',borderColor:'#e57373'}}></div>
+              <span><b>NoGo</b> = לא זמין</span>
+            </div>
+          </div>
+
+          {importStatus && importStatus.ok && (
+            <div className="import-success">
+              <span style={{fontSize:20}}>✅</span>
+              <span>{importStatus.msg}</span>
+            </div>
+          )}
+          {importStatus && importStatus.err && (
+            <div className="import-error">⚠️ {importStatus.msg}</div>
+          )}
+        </div>
+
+        {/* Step 2: Availability Grid */}
+        <div className="card">
+          <h2><span className="step">2</span> זמינות לחודש {monthName}</h2>
+
+          <div className="legend">
+            <div className="legend-item">
+              <div className="legend-dot" style={{background:'#c6efce',borderColor:'#70b56e'}}></div>
+              <span>זמין</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-dot" style={{background:'#d9d9d9',borderColor:'#aaa'}}></div>
+              <span>עובד (Work)</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-dot" style={{background:'#ffc7ce',borderColor:'#e57373'}}></div>
+              <span>לא זמין</span>
+            </div>
+          </div>
+
+          {/* Rule builder - apply a weekly pattern to the whole month */}
+          <div className="rule-builder">
+            <div className="rule-title">⚡ חוקיות שבועית — החלה אוטומטית על כל החודש</div>
+            <div className="rule-row">
+              <span className="rule-lbl">יום:</span>
+              <select value={ruleDay} onChange={e=>setRuleDay(e.target.value)}>
+                <option value="all">כל הימים</option>
+                {DAYS_HEB.map((dn,i)=>(<option key={i} value={i}>{dn}</option>))}
+              </select>
+              <span className="rule-lbl">משעה:</span>
+              <select value={ruleFrom} onChange={e=>setRuleFrom(e.target.value)}>
+                {HOURS_RANGE.map(h=>(<option key={h} value={h}>{h}</option>))}
+              </select>
+              <span className="rule-lbl">עד:</span>
+              <select value={ruleTo} onChange={e=>setRuleTo(e.target.value)}>
+                {HOURS_END.map(h=>(<option key={h} value={h}>{h}</option>))}
+              </select>
+              <span className="rule-lbl">סטטוס:</span>
+              <select value={ruleStatus} onChange={e=>setRuleStatus(e.target.value)}>
+                <option value="available">זמין</option>
+                <option value="work">עובד</option>
+                <option value="unavailable">לא זמין</option>
+              </select>
+              <button className="btn-apply" onClick={applyRule}>➕ החל על החודש</button>
+            </div>
+          </div>
+
+          <div className="quick-actions">
+            <span style={{fontSize:12,color:'var(--text-light)',alignSelf:'center'}}>מילוי מהיר:</span>
+            <button className="quick-btn" onClick={fillWeekdays}>✓ כל הימים</button>
+            <button className="quick-btn" onClick={fillMornings}>🌅 בקרים (7-13)</button>
+            <button className="quick-btn" onClick={fillAfternoons}>🌇 אחה"צ (13-22)</button>
+            <button className="quick-btn" onClick={clearAll}>✗ נקה הכל</button>
+          </div>
+
+          <p style={{fontSize:12,color:'var(--text-light)',marginBottom:10}}>
+            💡 <b>כפתור שמאלי:</b> לחיצה ראשונה=זמין, שנייה=עובד, שלישית=לא זמין. <b>כפתור ימני:</b> מעבר עובד / לא זמין. גרור לסימון מהיר. לחץ על מספר יום לסמן/לבטל יום שלם.
+          </p>
+
+          <div className="summary-bar">
+            <div className="summary-item"><div className="num">{availHours}</div><div className="lbl">שעות זמינות</div></div>
+            <div className="summary-item"><div className="num">{workCount}</div><div className="lbl">שעות עבודה</div></div>
+            <div className="summary-item"><div className="num">{Object.entries(slots).filter(([,v])=>v===true).reduce((s,[k])=>{s.add(k.split('_')[0]);return s;},new Set()).size}</div><div className="lbl">ימים זמינים</div></div>
+            <div className="summary-item"><div className="num">{daysInMonth.length}</div><div className="lbl">ימים בחודש</div></div>
+          </div>
+
+          <div className="grid-wrapper" ref={gridRef}>
+            <table className="avail-table">
+              <thead>
+                <tr>
+                  <th className="corner-cell">תאריך</th>
+                  {HOURS_RANGE.map(h=><th key={h} style={{fontSize:10}}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {daysInMonth.map(d=>(
+                  <tr key={d.date}>
+                    <td className="day-header" onClick={()=>toggleDay(d.date)}
+                      style={d.dayOfWeek===5||d.dayOfWeek===6?{color:'#6366f1'}:{}}>
+                      <div style={{fontSize:13,fontWeight:700}}>{d.date}</div>
+                      <div style={{fontSize:10}}>{d.dayName}</div>
+                    </td>
+                    {HOURS_RANGE.map(h=>{
+                      const val=slots[`${d.date}_${h}`];
+                      return(
+                        <td key={h}
+                          className={getCellClass(val)}
+                          onPointerDown={e=>handlePointerDown(d.date,h,e)}
+                          onPointerEnter={()=>handlePointerEnter(d.date,h)}
+                          onContextMenu={e=>e.preventDefault()}
+                          style={{touchAction:'none'}}>
+                          {getCellLabel(val)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Step 3: Notes & Submit */}
+        <div className="card">
+          <h2><span className="step">3</span> הערות ושליחה</h2>
+          <div className="form-group" style={{marginBottom:16}}>
+            <label>הערות (אופציונלי)</label>
+            <textarea className="notes-area" value={notes} onChange={e=>setNotes(e.target.value)}
+              placeholder="העדפות מיוחדות, הגבלות, או כל מידע נוסף שחשוב שנדע..."/>
+          </div>
+
+          <button className="btn btn-success btn-lg btn-block" onClick={handleSubmitForm}>
+            📤 שלח טופס
+          </button>
+          <p style={{fontSize:12,color:'var(--text-light)',marginTop:10,textAlign:'center'}}>
+            * שדות חובה: שם, חודש, ולפחות שעה אחת זמינה. הטופס יישמר בשיבוצים ויוכלו לערוך אותו שוב.
+          </p>
+        </div>
+      </div>
+      <div className="version-tag">{FORM_VERSION}</div>
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
