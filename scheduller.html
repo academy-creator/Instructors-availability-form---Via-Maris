@@ -115,7 +115,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 @media(max-width:768px){.tabs{overflow-x:auto;margin:12px}.content{padding:12px}.form-row{flex-direction:column}.modal{min-width:90vw}}
 .version-tag{position:fixed;bottom:8px;left:8px;background:rgba(15,23,42,.55);color:#fff;font-size:10px;padding:3px 8px;border-radius:6px;z-index:50;font-family:monospace;pointer-events:none;opacity:.7}
 .cal-day-table{border-collapse:separate;border-spacing:2px;width:100%}
-.cal-day-table th{background:#f1f5f9;padding:6px 4px;border-radius:6px}
+.cal-day-table th{background:#f1f5f9;padding:6px 4px;border-radius:6px}.cal-day-table{table-layout:fixed}.cal-day-table tbody tr{height:36px}.cal-day-table tbody td{height:36px;box-sizing:border-box}
 .cal-day-table td{vertical-align:top;text-align:center}
 .time-breakdown{display:flex;flex-direction:column;gap:6px;margin-top:4px}
 .tb-row{display:flex;align-items:center;gap:10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 10px}
@@ -143,7 +143,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v5.71';
+const SCHEDULER_VERSION = 'v5.80';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -420,6 +420,7 @@ function App(){
   });
   const [toast,setToast]=useState(null);
   const [month,setMonth]=useState(()=>{
+    try { const s=localStorage.getItem('sch_selected_month'); if(s) return s; } catch{}
     // Default to NEXT month — managers usually plan one month ahead
     const d=new Date(); d.setMonth(d.getMonth()+1);
     return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}`;
@@ -480,7 +481,19 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('sch_activities',JSON.stringify(activities));}catch{}},[activities]);
   useEffect(()=>{try{localStorage.setItem('sch_availability',JSON.stringify(availability));}catch{}},[availability]);
   useEffect(()=>{try{localStorage.setItem('sch_assignments',JSON.stringify(assignments));}catch{}},[assignments]);
+  useEffect(()=>{try{localStorage.setItem('sch_selected_month',month);}catch{}},[month]);
   useEffect(()=>{try{localStorage.setItem('sch_boats',JSON.stringify(boats));}catch{}},[boats]);
+  useEffect(()=>{
+    if (!boats.length) return;
+    let changed = false;
+    const newMap = {...roomBoatMap};
+    for (const [roomId, boatName] of Object.entries(DEFAULT_ROOM_BOAT_MAP_BY_NAME)) {
+      const boat = boats.find(b => (b.name||'').trim() === boatName.trim());
+      if (boat && newMap[roomId] !== boat.id) { newMap[roomId] = boat.id; changed = true; }
+      else if (!boat && newMap[roomId]) { delete newMap[roomId]; changed = true; }
+    }
+    if (changed) setRoomBoatMap(newMap);
+  }, [boats]);
   useEffect(()=>{try{localStorage.setItem('sch_inbox',JSON.stringify(inbox));}catch{}},[inbox]);
   useEffect(()=>{try{localStorage.setItem('sch_crm_events',JSON.stringify(crmEvents));}catch{}},[crmEvents]);
   useEffect(()=>{try{localStorage.setItem('sch_room_boat_map',JSON.stringify(roomBoatMap));}catch{}},[roomBoatMap]);
@@ -613,7 +626,7 @@ function App(){
         {tab==='availability'&&<AvailabilityTab instructors={instructors} availability={availability} setAvailability={setAvailability} month={month} showToast={showToast} lastAppliedId={assignments._lastAppliedInstructor}/>}
         {tab==='boatavail'&&<BoatAvailabilityTab boats={boats} crmEvents={crmEvents} setCrmEvents={setCrmEvents} roomBoatMap={roomBoatMap} setRoomBoatMap={setRoomBoatMap} month={month} showToast={showToast}/>}
         {tab==='schedule'&&<ScheduleTab instructors={instructors} activities={activities} boats={boats} availability={availability} setAvailability={setAvailability} assignments={assignments} setAssignments={setAssignments} month={month} crmEvents={crmEvents} roomBoatMap={roomBoatMap} showToast={showToast} allSkills={allSkills} daylightStart={daylightStart} daylightEnd={daylightEnd}/>}
-        {tab==='calendar'&&<CalendarDayView boats={boats} instructors={instructors} assignments={assignments} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month}/>}
+        {tab==='calendar'&&<CalendarDayView boats={boats} instructors={instructors} assignments={assignments} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} setMonth={setMonth}/>}
         {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month}/>}
         {tab==='rules'&&<RulesTab/>}
         {tab==='inbox'&&<InboxTab inbox={inbox} setInbox={setInbox} instructors={instructors} setInstructors={setInstructors} availability={availability} setAvailability={setAvailability} setAssignments={setAssignments} setMonth={setMonth} currentMonth={month} showToast={showToast}/>}
@@ -1692,7 +1705,22 @@ function AvailabilityByDate({instructors, availability, month, daysInMonth, setA
   );
 }
 
-function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMap, month}){
+function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMap, month, setMonth}){
+  // Visual L→R: עידו ושתי אסתר רוני כרמל גת כרמן מישל נאווה רונית ליאור דניאל סבא שמשון קטמנדו | כיתה 3 מגלן
+  // RTL table: first DOM col = visually rightmost → reverse desired visual order for array
+  const BOAT_COL_ORDER=['קטמנדו','סבא שמשון','דניאל','ליאור','רונית','נאווה','מישל','כרמן','כרמל גת','רוני','אסתר','ושתי','עידו'];
+  const CLASS_COL_ORDER=['מגלן','כיתה 3'];
+  const sortedBoats=useMemo(()=>[...boats].sort((a,b)=>{
+    const ia=BOAT_COL_ORDER.indexOf(a.name),ib=BOAT_COL_ORDER.indexOf(b.name);
+    if(ia===-1&&ib===-1)return(a.name||'').localeCompare(b.name||'','he');
+    if(ia===-1)return 1;if(ib===-1)return -1;return ia-ib;
+  }),[boats]);
+  const sortCls=(ids)=>[...ids].sort((a,b)=>{
+    const ia=CLASS_COL_ORDER.indexOf(a),ib=CLASS_COL_ORDER.indexOf(b);
+    if(ia===-1&&ib===-1)return a.localeCompare(b,'he');
+    if(ia===-1)return 1;if(ib===-1)return -1;return ia-ib;
+  });
+
   // Persist selected date
   const [selectedDateNum, setSelectedDateNum] = useState(()=>{
     try { const saved = localStorage.getItem('cal_view_date'); return saved ? Number(saved) : 1; }
@@ -1723,26 +1751,53 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
   // Sources: 1) scheduled assignments from auto-scheduler, 2) CRM events mapped to boats
   const rawSched_cdv = assignments[`schedule_${month}`];
   const scheduledItems = (Array.isArray(rawSched_cdv) ? rawSched_cdv : []).filter(s=>s.date===selDate && s.boatId);
-  const crmDayEvents = crmEvents.filter(e=>e.startDate===dateStr);
+  // Robust date filter — handles YYYY-MM-DD, YYYY-M-D, DD/MM/YYYY, ISO with time, etc.
+  const crmDayEvents = crmEvents.filter(e=>{
+    const d = e.startDate;
+    if (!d) return false;
+    // ISO: YYYY-MM-DD or YYYY-MM-DDTHH:...
+    const iso = d.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (iso) return Number(iso[1])===y && Number(iso[2])===mNum && Number(iso[3])===selDate;
+    // DD/MM/YYYY
+    const dmy = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dmy) return Number(dmy[3])===y && Number(dmy[2])===mNum && Number(dmy[1])===selDate;
+    // MM/DD/YYYY
+    const mdy = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (mdy) return Number(mdy[3])===y && Number(mdy[1])===mNum && Number(mdy[2])===selDate;
+    return d===dateStr;
+  });
 
+  // resolveBoatIdForRoom: returns boat id, or null if classroom/unknown/ignored.
+  // Classroom rooms ALWAYS return null — even if roomBoatMap has a stale entry.
+  const resolveBoatIdForRoom = (roomId) => {
+    if (roomId == null) return null;
+    const idStr = String(roomId);
+    if (CLASSROOM_NAMES_BY_ROOM_ID[idStr]) return null; // known classroom — never a boat
+    if (IGNORED_ROOM_IDS.has(idStr)) return null;
+    if (roomBoatMap[roomId]) return roomBoatMap[roomId];
+    const boatName = DEFAULT_ROOM_BOAT_MAP_BY_NAME[idStr];
+    if (!boatName) return null;
+    const found = boats.find(b => (b.name||'').trim() === boatName.trim());
+    return found ? found.id : null;
+  };
   // For each boat, collect events as {startMin, endMin, title, subtitle, color, source}
   const eventsByBoat = {};
   for (const boat of boats) eventsByBoat[boat.id] = [];
-  // Classroom events keyed by roomId. Known classrooms (22, 24) ALWAYS appear, even on empty days.
+  // Classroom events keyed by display label (not roomId).
   const eventsByClassroom = {};
   const classroomsToShow = new Set();
-  // Always include known classrooms — user wants כיתה 3 / מגלן fixed columns even when empty.
   Object.keys(CLASSROOM_NAMES_BY_ROOM_ID).forEach(rid => {
-    classroomsToShow.add(rid);
-    eventsByClassroom[rid] = [];
+    const lbl = CLASSROOM_NAMES_BY_ROOM_ID[rid];
+    if (!classroomsToShow.has(lbl)) { classroomsToShow.add(lbl); eventsByClassroom[lbl] = []; }
   });
   crmDayEvents.forEach(e=>{
-    if (!e.roomId) return;
+    if (e.roomId == null) return;
     const idStr = String(e.roomId);
-    if (IGNORED_ROOM_IDS.has(idStr)) return; // skip ignored rooms
-    if (!roomBoatMap[e.roomId]) {
-      classroomsToShow.add(idStr);
-      if (!eventsByClassroom[idStr]) eventsByClassroom[idStr] = [];
+    if (IGNORED_ROOM_IDS.has(idStr)) return;
+    if (DEFAULT_ROOM_BOAT_MAP_BY_NAME[idStr]) return;
+    const lbl = CLASSROOM_NAMES_BY_ROOM_ID[idStr] || ('חדר ' + idStr);
+    if (!classroomsToShow.has(lbl) && !resolveBoatIdForRoom(e.roomId)) {
+      classroomsToShow.add(lbl); eventsByClassroom[lbl] = [];
     }
   });
 
@@ -1770,8 +1825,10 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
   };
 
   crmDayEvents.forEach(e=>{
-    if (e.roomId && IGNORED_ROOM_IDS.has(String(e.roomId))) return; // skip ignored
-    const mappedBoatId = roomBoatMap[e.roomId];
+    if (e.roomId == null) return;
+    const idStr = String(e.roomId);
+    if (IGNORED_ROOM_IDS.has(idStr)) return;
+    const mappedBoatId = resolveBoatIdForRoom(e.roomId);
     const stripped = stripHtml(e.text);
     const inst = extractParens(e.text);
     const titleMatch = stripped.split(/[(,]/)[0].trim();
@@ -1785,12 +1842,11 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
       source: 'crm'
     };
     if (mappedBoatId) {
-      eventsByBoat[mappedBoatId]?.push(evObj);
-    } else if (e.roomId) {
-      // Skip "out of office" events from classroom display — they happen elsewhere (sailing, abroad, ...).
+      if (eventsByBoat[mappedBoatId]) eventsByBoat[mappedBoatId].push(evObj);
+    } else {
       if (isOutOfOffice(e.text)) return;
-      // Unmapped room → classroom column (use display name if known, else "חדר N")
-      eventsByClassroom[String(e.roomId)]?.push({...evObj, color: '#fef3c7', textColor: '#92400e'});
+      const lbl = CLASSROOM_NAMES_BY_ROOM_ID[idStr] || ('חדר ' + idStr);
+      if (eventsByClassroom[lbl]) eventsByClassroom[lbl].push({...evObj,color:'#fef3c7',textColor:'#92400e'});
     }
   });
 
@@ -1802,7 +1858,7 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
     for (let h = CAL_START_HOUR; h < CAL_END_HOUR; h++) layout[h] = {type:'free'};
     const sorted = events.slice().sort((a,b)=>a.startMin-b.startMin);
     for (const ev of sorted) {
-      const startH = Math.max(CAL_START_HOUR, Math.floor(ev.startMin/60));
+      const startH = Math.max(CAL_START_HOUR, Math.round(ev.startMin/60));
       const endH = Math.min(CAL_END_HOUR, Math.ceil(ev.endMin/60));
       if(endH <= startH) continue;
       const span = endH - startH;
@@ -1844,18 +1900,9 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
 
   const layouts = {};
   boats.forEach(b => layouts[b.id] = buildLayoutFor(eventsByBoat[b.id]||[]));
-  // Classroom layouts — MERGE rooms that share the same display name (e.g. roomIds 4 and 22 both = מגלן).
-  // Key by display name when known, else by 'חדר N'.
-  const classroomLabelFor = rid => CLASSROOM_NAMES_BY_ROOM_ID[rid] || ('חדר '+rid);
-  const mergedClassroomEvents = {};
-  [...classroomsToShow].forEach(rid => {
-    const label = classroomLabelFor(rid);
-    if (!mergedClassroomEvents[label]) mergedClassroomEvents[label] = [];
-    (eventsByClassroom[rid] || []).forEach(ev => mergedClassroomEvents[label].push(ev));
-  });
   const classroomLayouts = {};
-  const classroomIds = Object.keys(mergedClassroomEvents).sort();
-  classroomIds.forEach(label => classroomLayouts[label] = buildLayoutFor(mergedClassroomEvents[label]));
+  const classroomIds = [...classroomsToShow].sort();
+  classroomIds.forEach(lbl => classroomLayouts[lbl] = buildLayoutFor(eventsByClassroom[lbl]||[]));
 
   const prevDay = ()=> setSelectedDateNum(Math.max(1, selDate-1));
   const nextDay = ()=> setSelectedDateNum(Math.min(lastDay, selDate+1));
@@ -1872,6 +1919,8 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
             <span className="badge badge-info" style={{marginRight:4}}>{dayName}</span>
           </h2>
           <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input type="month" value={month} onChange={e=>setMonth&&setMonth(e.target.value)}
+              style={{padding:'6px 10px',fontWeight:600,border:'2px solid var(--primary)',borderRadius:6}}/>
             <button className="btn btn-outline btn-sm" onClick={prevDay} disabled={selDate===1}>◀ יום קודם</button>
             <input type="number" min={1} max={lastDay} value={selDate} onChange={e=>setSelectedDateNum(Number(e.target.value)||1)}
               style={{width:60,textAlign:'center',padding:'6px'}}/>
@@ -1881,82 +1930,63 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
         <div style={{fontSize:11,color:'var(--text-light)',marginBottom:8}}>
           🔵 שיבוץ מתוכנן · 🔴 שיבוץ ללא מדריך · 🟡 אירוע חיצוני מ-CRM
         </div>
+        {(()=>{
+          const dbgBoatCount=Object.values(eventsByBoat).reduce((s,a)=>s+a.length,0);
+          const sampledDates=[...new Set(crmEvents.slice(0,30).map(e=>e.startDate).filter(Boolean))].slice(0,4);
+          return(
+            <div style={{fontSize:11,color:'#64748b',marginBottom:6,display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}>
+              <span>CRM: <b>{crmDayEvents.length}</b> ביום · <b>{dbgBoatCount}</b> לסירות · סהדכ <b>{crmEvents.length}</b></span>
+              {crmEvents.length>0&&crmDayEvents.length===0&&(
+                <span style={{color:'#dc2626',fontWeight:600}}>
+                  {'⚠️ אין אירועים ב-'+month+'. נמצאו אירועים ב: '+sampledDates.join(', ')}
+                </span>
+              )}
+            </div>
+          );
+        })()}
         <div style={{overflowX:'auto'}}>
           <table className="cal-day-table">
             <thead>
               <tr>
                 <th style={{width:50}}>שעה</th>
-                {boats.map(b=>(
-                  <th key={b.id} style={{minWidth:90,fontSize:12,padding:'8px 4px',textAlign:'center'}}>
-                    <div style={{fontWeight:700}}>{b.name}</div>
-                    <div style={{fontSize:10,color:'var(--text-light)',fontWeight:400}}>{b.type||''}</div>
-                  </th>
-                ))}
-                {classroomIds.map(label=>(
+                {sortCls(classroomIds).map(label=>(
                   <th key={'cls_'+label} style={{minWidth:90,fontSize:12,padding:'8px 4px',textAlign:'center',background:'#fffbeb'}}>
                     <div style={{fontWeight:700}}>{label}</div>
                     <div style={{fontSize:10,color:'var(--text-light)',fontWeight:400}}>כיתה / חדר</div>
+                  </th>
+                ))}
+                {sortedBoats.map(b=>(
+                  <th key={b.id} style={{minWidth:90,fontSize:12,padding:'8px 4px',textAlign:'center'}}>
+                    <div style={{fontWeight:700}}>{b.name}</div>
+                    <div style={{fontSize:10,color:'var(--text-light)',fontWeight:400}}>{b.type||''}</div>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {calHours.map(h=>(
-                <tr key={h}>
-                  <td style={{fontSize:11,color:'var(--text-light)',padding:'4px 6px',whiteSpace:'nowrap',background:'#f8fafc',fontWeight:600}}>
+                <tr key={h} style={{height:36}}>
+                  <td style={{fontSize:11,color:'var(--text-light)',padding:'4px 6px',whiteSpace:'nowrap',background:'#f8fafc',fontWeight:600,height:36,boxSizing:'border-box'}}>
                     {h.toString().padStart(2,'0')}:00
                   </td>
-                  {boats.map(b=>{
-                    const cell = layouts[b.id][h];
-                    if(cell?.type==='continue') return null;
-                    if(cell?.type==='start'){
-                      const evs = cell.events || [];
-                      return (
-                        <td key={b.id} rowSpan={cell.span} style={{
-                          padding:'2px',
-                          fontSize:11,
-                          verticalAlign:'top',
-                          minHeight: cell.span*30,
-                          border:'1px solid rgba(0,0,0,.1)'
-                        }}>
-                          <div style={{display:'flex',flexDirection:'row',gap:2,height:'100%'}}>
-                            {evs.map((ev,i)=>(
-                              <div key={i} style={{
-                                flex:1, background: ev.color, color: ev.textColor,
-                                padding:'4px 6px', borderRadius:4, minWidth:0
-                              }}>
-                                <div style={{fontSize:10,opacity:.85}}>{fmtTime(ev.startMin)}–{fmtTime(ev.endMin)}</div>
-                                <div style={{fontWeight:600,marginTop:2,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.title}</div>
-                                {ev.subtitle && <div style={{fontSize:10,marginTop:2,opacity:.9,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.subtitle}</div>}
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      );
-                    }
-                    return <td key={b.id} style={{borderTop:'1px dashed #e2e8f0',height:30}}></td>;
-                  })}
-                  {classroomIds.map(label=>{
+                  {sortCls(classroomIds).map(label=>{
                     const cell = classroomLayouts[label][h];
                     if(cell?.type==='continue') return null;
                     if(cell?.type==='start'){
                       const evs = cell.events || [];
                       return (
                         <td key={'cls_'+label} rowSpan={cell.span} style={{
-                          padding:'2px',
-                          fontSize:11,
-                          verticalAlign:'top',
-                          minHeight: cell.span*30,
-                          border:'1px solid rgba(0,0,0,.1)',
-                          background:'#fffbeb'
+                          padding:0,fontSize:11,verticalAlign:'top',
+                          height:cell.span*36,border:'1px solid rgba(0,0,0,.1)',background:'#fffbeb'
                         }}>
-                          <div style={{display:'flex',flexDirection:'row',gap:2,height:'100%'}}>
+                          <div style={{display:'flex',flexDirection:'row',gap:1,height:'100%'}}>
                             {evs.map((ev,i)=>(
                               <div key={i} style={{
-                                flex:1, background: ev.color, color: ev.textColor,
-                                padding:'4px 6px', borderRadius:4, minWidth:0
+                                flex:1,background:ev.color,color:ev.textColor,
+                                padding:'4px 6px',borderRadius:3,minWidth:0,
+                                height:'100%',boxSizing:'border-box',overflow:'hidden'
                               }}>
-                                <div style={{fontSize:10,opacity:.85}}>{fmtTime(ev.startMin)}–{fmtTime(ev.endMin)}</div>
+                                <div style={{fontSize:10,opacity:.85}}><span dir="ltr">{fmtTime(ev.startMin)}–{fmtTime(ev.endMin)}</span></div>
                                 <div style={{fontWeight:600,marginTop:2,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.title}</div>
                                 {ev.subtitle && <div style={{fontSize:10,marginTop:2,opacity:.9,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.subtitle}</div>}
                               </div>
@@ -1965,14 +1995,94 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
                         </td>
                       );
                     }
-                    return <td key={'cls_'+label} style={{borderTop:'1px dashed #e2e8f0',height:30,background:'#fffbeb'}}></td>;
+                    return <td key={'cls_'+label} style={{borderTop:'1px dashed #e2e8f0',padding:0,background:'#fffbeb'}}><div style={{height:36}}/></td>;
                   })}
+                  {sortedBoats.map(b=>{
+                    const cell = layouts[b.id][h];
+                    if(cell?.type==='continue') return null;
+                    if(cell?.type==='start'){
+                      const evs = cell.events || [];
+                      return (
+                        <td key={b.id} rowSpan={cell.span} style={{
+                          padding:0,fontSize:11,verticalAlign:'top',
+                          height:cell.span*36,border:'1px solid rgba(0,0,0,.1)'
+                        }}>
+                          <div style={{display:'flex',flexDirection:'row',gap:1,height:'100%'}}>
+                            {evs.map((ev,i)=>(
+                              <div key={i} style={{
+                                flex:1,background:ev.color,color:ev.textColor,
+                                padding:'4px 6px',borderRadius:3,minWidth:0,
+                                height:'100%',boxSizing:'border-box',overflow:'hidden'
+                              }}>
+                                <div style={{fontSize:10,opacity:.85}}><span dir="ltr">{fmtTime(ev.startMin)}–{fmtTime(ev.endMin)}</span></div>
+                                <div style={{fontWeight:600,marginTop:2,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.title}</div>
+                                {ev.subtitle && <div style={{fontSize:10,marginTop:2,opacity:.9,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.subtitle}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      );
+                    }
+                    return <td key={b.id} style={{borderTop:'1px dashed #e2e8f0',padding:0}}><div style={{height:36}}/></td>;
+                  })}
+
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function BoatEventsByDate({monthEvents,roomBoatMap,boats,stripHtml}){
+  const [openDates,setOpenDates]=useState(()=>new Set());
+  const toggle=(d)=>setOpenDates(prev=>{const n=new Set(prev);n.has(d)?n.delete(d):n.add(d);return n;});
+  const byDate=useMemo(()=>{
+    const map={};
+    monthEvents.forEach(e=>{const d=e.startDate||'?';if(!map[d])map[d]=[];map[d].push(e);});
+    return Object.entries(map).sort((a,b)=>a[0].localeCompare(b[0]));
+  },[monthEvents]);
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:4}}>
+      {byDate.map(([date,evs])=>{
+        const open=openDates.has(date);
+        const mapped=evs.filter(e=>roomBoatMap[e.roomId]).length;
+        return(
+          <div key={date} style={{border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'}}>
+            <div onClick={()=>toggle(date)} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 14px',cursor:'pointer',background:'#f8fafc',userSelect:'none'}}>
+              <span style={{fontSize:16,fontWeight:700,color:'var(--text-light)',width:16,display:'inline-block',textAlign:'center'}}>{open?'−':'+'}</span>
+              <span style={{fontWeight:600,fontSize:14}}>{date}</span>
+              <span className="badge badge-primary" style={{fontSize:11}}>{evs.length} אירועים</span>
+              {mapped>0&&<span className="badge badge-success" style={{fontSize:11}}>{mapped} משויכים</span>}
+              {evs.length-mapped>0&&<span className="badge badge-warning" style={{fontSize:11}}>{evs.length-mapped} לא משויכים</span>}
+            </div>
+            {open&&(
+              <div style={{overflowX:'auto'}}>
+                <table style={{margin:0}}>
+                  <thead><tr><th>שעות</th><th>roomId</th><th>סירה במערכת</th><th>מדריך (CRM)</th><th>תיאור</th></tr></thead>
+                  <tbody>
+                    {evs.map((e,i)=>{
+                      const mid=roomBoatMap[e.roomId];
+                      const mboat=mid?boats.find(b=>b.id===mid)?.name:null;
+                      return(
+                        <tr key={e.id||i} style={mboat?{background:'#f0fdf4'}:{}}>
+                          <td style={{fontSize:12,fontFamily:'monospace'}}>{e.startHour}–{e.endHour}</td>
+                          <td style={{fontSize:12}}>{e.roomId}</td>
+                          <td style={{fontSize:13,fontWeight:mboat?600:400,color:mboat?'var(--success)':'var(--text-light)'}}>{mboat||'—'}</td>
+                          <td style={{fontSize:12}}>{extractInstructorName(e.text)||'-'}</td>
+                          <td style={{fontSize:11,maxWidth:260}}>{stripHtml(e.text).slice(0,80)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2093,31 +2203,7 @@ function BoatAvailabilityTab({boats, crmEvents, setCrmEvents, roomBoatMap, setRo
         {monthEvents.length===0 ? (
           <div className="empty-state"><div className="icon">📅</div><p>אין אירועים בחודש זה. לחץ "📥 ייבא מ-CRM" כדי לייבא.</p></div>
         ) : (
-          <div style={{overflowX:'auto'}}>
-            <table>
-              <thead>
-                <tr><th>תאריך</th><th>שעות</th><th>roomId</th><th>סירה במערכת</th><th>מדריך (CRM)</th><th>תיאור</th></tr>
-              </thead>
-              <tbody>
-                {monthEvents.map(e=>{
-                  const mappedBoatId = roomBoatMap[e.roomId];
-                  const mappedBoat = mappedBoatId ? boats.find(b=>b.id===mappedBoatId)?.name : null;
-                  return (
-                    <tr key={e.id} style={mappedBoat?{background:'#f0fdf4'}:{}}>
-                      <td style={{fontSize:12}}>{e.startDate}</td>
-                      <td style={{fontSize:12,fontFamily:'monospace'}}>{e.startHour}-{e.endHour}</td>
-                      <td style={{fontSize:12}}>{e.roomId}</td>
-                      <td style={{fontSize:13,fontWeight:mappedBoat?600:400,color:mappedBoat?'var(--success)':'var(--text-light)'}}>
-                        {mappedBoat || '—'}
-                      </td>
-                      <td style={{fontSize:12}}>{extractInstructorName(e.text) || '-'}</td>
-                      <td style={{fontSize:11,maxWidth:300}}>{stripHtml(e.text).slice(0,80)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <BoatEventsByDate monthEvents={monthEvents} roomBoatMap={roomBoatMap} boats={boats} stripHtml={stripHtml}/>
         )}
       </div>
 
