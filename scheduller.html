@@ -136,6 +136,10 @@ const DAYS_HEB = ['ראשון','שני','שלישי','רביעי','חמישי','
 const HOURS = Array.from({length:15},(_,i)=>`${(7+i).toString().padStart(2,'0')}:00`);
 const PRIORITY_LABELS = {high:'גבוה',medium:'בינוני',low:'נמוך'};
 const PRIORITY_COLORS = {high:'danger',medium:'warning',low:'success'};
+const BAND_HOURS={morning:['07:00','08:00','09:00','10:00','11:00','12:00'],midday:['10:00','11:00','12:00','13:00','14:00','15:00'],evening:['16:00','17:00','18:00','19:00','20:00','21:00']};
+const BAND_LABELS={morning:'בוקר 7–13',midday:'אמצע 10–16',evening:'ערב 16–22'};
+const BAND_KEYS=['morning','midday','evening'];
+const PRIORITY_CHIP_COLORS={high:{bg:'#EEEDFE',color:'#3C3489',border:'#7F77DD'},medium:{bg:'#E1F5EE',color:'#085041',border:'#1D9E75'},low:{bg:'#FAEEDA',color:'#633806',border:'#BA7517'}};
 
 const DEFAULT_SKILLS = [];
 const SHEET_ID = '12G0sbYsQzJyCYgLW4cRuSifPMulKgogRMl0JZJE1kGY';
@@ -143,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v5.80';
+const SCHEDULER_VERSION = 'v6.12';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -395,6 +399,8 @@ class ErrorBoundary extends React.Component {
 
 function App(){
   const [tab,setTab]=useState('instructors');
+  const [weeklySelections,setWeeklySelections]=useState({});
+  const [assignmentViewDate,setAssignmentViewDate]=useState(null);
   const [instructors,setInstructors]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('sch_instructors'))||[];}catch{return [];}
   });
@@ -539,10 +545,12 @@ function App(){
     {id:'availability',label:'זמינות',icon:'📅'},
     {id:'boatavail',label:'זמינות סירות',icon:'🚢'},
     {id:'schedule',label:'שיבוצים',icon:'✅'},
-    {id:'calendar',label:'לוח יומי',icon:'📅'},
     {id:'stats',label:'סטטיסטיקות',icon:'📊'},
-    {id:'rules',label:'חוקים',icon:'📖'},
     {id:'inbox',label:'אינבוקס',icon:'📥',badge:inboxPending},
+    {id:'weeklyplan',label:'תכנון שבועי',icon:'🗓️'},
+    {id:'assignmentview',label:'שיבוץ סופי',icon:'✅'},
+    {id:'katmandu',label:'אשף קטמנדו',icon:'🛶'},
+    {id:'katamaran',label:'אשף קטמרן',icon:'⛵'},
   ];
 
   return(
@@ -626,9 +634,11 @@ function App(){
         {tab==='availability'&&<AvailabilityTab instructors={instructors} availability={availability} setAvailability={setAvailability} month={month} showToast={showToast} lastAppliedId={assignments._lastAppliedInstructor}/>}
         {tab==='boatavail'&&<BoatAvailabilityTab boats={boats} crmEvents={crmEvents} setCrmEvents={setCrmEvents} roomBoatMap={roomBoatMap} setRoomBoatMap={setRoomBoatMap} month={month} showToast={showToast}/>}
         {tab==='schedule'&&<ScheduleTab instructors={instructors} activities={activities} boats={boats} availability={availability} setAvailability={setAvailability} assignments={assignments} setAssignments={setAssignments} month={month} crmEvents={crmEvents} roomBoatMap={roomBoatMap} showToast={showToast} allSkills={allSkills} daylightStart={daylightStart} daylightEnd={daylightEnd}/>}
-        {tab==='calendar'&&<CalendarDayView boats={boats} instructors={instructors} assignments={assignments} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} setMonth={setMonth}/>}
         {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month}/>}
-        {tab==='rules'&&<RulesTab/>}
+        {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={weeklySelections} initDate={assignmentViewDate} setTab={setTab}/>}
+        {tab==='katamaran'&&<KatamaranWizard instructors={instructors} activities={activities} boats={boats} crmEvents={crmEvents} roomBoatMap={roomBoatMap} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
+        {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
+        {tab==='weeklyplan'&&<WeeklyPlanTab instructors={instructors} availability={availability} month={month} activities={activities} assignments={assignments} setTab={setTab} weeklySelections={weeklySelections} setWeeklySelections={setWeeklySelections} setAssignmentViewDate={setAssignmentViewDate}/>}
         {tab==='inbox'&&<InboxTab inbox={inbox} setInbox={setInbox} instructors={instructors} setInstructors={setInstructors} availability={availability} setAvailability={setAvailability} setAssignments={setAssignments} setMonth={setMonth} currentMonth={month} showToast={showToast}/>}
         </ErrorBoundary>
       </div>
@@ -735,7 +745,7 @@ function InstructorModal({instructor,allSkills,onSave,onClose}){
   const [preferredBucket,setPreferredBucket]=useState(instructor?.preferredBucket ?? 'none');
   const [preferredBreakMin,setPreferredBreakMin]=useState(instructor?.preferredBreakMin ?? 0);
   const [newSkill,setNewSkill]=useState('');
-  const formNotes = instructor?.formNotes || '';
+  const [formNotes,setFormNotes]=useState(instructor?.formNotes||'');
 
   return(
     <div className="modal-overlay" onClick={onClose}>
@@ -834,17 +844,10 @@ function InstructorModal({instructor,allSkills,onSave,onClose}){
             <input type="number" value={preferredBreakMin} onChange={e=>setPreferredBreakMin(e.target.value)} min={0} max={240} step={15}/>
           </div>
         </div>
-        {formNotes && (
-          <div className="form-group" style={{marginBottom:12}}>
-            <label>📝 הערות מהטופס האחרון</label>
-            <div style={{background:'#fef9c3',border:'1px solid #fde047',padding:10,borderRadius:6,fontSize:13,color:'#713f12',whiteSpace:'pre-wrap'}}>
-              {formNotes}
-            </div>
-            <div style={{fontSize:11,color:'var(--text-light)',marginTop:4}}>
-              עדכן את שדות ההעדפה למעלה לפי הבקשות בהערות.
-            </div>
-          </div>
-        )}
+        <div className="form-group" style={{marginBottom:12}}>
+          <label>📝 הערות</label>
+          <textarea value={formNotes} onChange={e=>setFormNotes(e.target.value)} rows={3} style={{width:'100%',resize:'vertical',fontSize:13,padding:8,borderRadius:6,border:'1px solid #fde047',background:'#fef9c3',color:'#713f12'}} placeholder="הערות מהטופס או הערות ידניות..."/>
+        </div>
         <div className="form-group" style={{marginBottom:12}}>
           <label>יכולות / הכשרות</label>
           <div style={{display:'flex',gap:6,marginBottom:6}}>
@@ -878,7 +881,7 @@ function InstructorModal({instructor,allSkills,onSave,onClose}){
             allowConsecutiveWeekend:!!allowConsecutiveWeekend,
             preferredBucket:preferredBucket||'none',
             preferredBreakMin:preferredBreakMin!==''?Number(preferredBreakMin):0,
-            formNotes:instructor?.formNotes||''
+            formNotes:formNotes||''
           })}>
             {instructor?'עדכן':'הוסף'}
           </button>
@@ -1055,41 +1058,39 @@ function BoatModal({boat,onSave,onClose}){
 function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,daylightStart,setDaylightStart,daylightEnd,setDaylightEnd}){
   const [showModal,setShowModal]=useState(false);
   const [editing,setEditing]=useState(null);
+  const [openGroups,setOpenGroups]=useState(()=>new Set());
 
-  const summarizeTimeBreakdown = (a) => {
-    const parts = [];
-    if (a.morning) parts.push(`${a.morning} בוקר`);
-    if (a.evening) parts.push(`${a.evening} ערב`);
-    if (a.night) parts.push(`${a.night} לילה`);
-    const allocated = (a.morning||0)+(a.evening||0)+(a.night||0);
-    const open = (a.totalPerMonth||0) - allocated;
-    if (open > 0) parts.push(`${open} פתוח`);
-    return parts.join(' · ') || '-';
-  };
+  const boatTypes=useMemo(()=>[...new Set(boats.map(b=>b.type).filter(Boolean))].sort(),[boats]);
 
-  const summarizeDayBreakdown = (a) => {
-    const parts = [];
-    if (a.friday) parts.push(`${a.friday} שישי`);
-    if (a.saturday) parts.push(`${a.saturday} שבת`);
-    return parts.length ? parts.join(' · ') : '-';
-  };
+  const grouped=useMemo(()=>{
+    const g={};
+    const add=(key,a)=>{if(!g[key])g[key]=[];if(!g[key].find(x=>x.id===a.id))g[key].push(a);};
+    activities.forEach(a=>{
+      const types=a.allowedBoatTypes||[];
+      const ids=a.allowedBoatIds||[];
+      if(!types.length&&!ids.length){add('כל הסירות',a);}
+      else{
+        types.forEach(t=>add(t,a));
+        if(ids.length&&!types.length){
+          const ts=new Set(ids.map(id=>boats.find(b=>b.id===id)?.type).filter(Boolean));
+          if(ts.size)ts.forEach(t=>add(t,a));else add('ספציפי',a);
+        }
+      }
+    });
+    return g;
+  },[activities,boats]);
 
-  const summarizeBoats = (a) => {
-    const types = a.allowedBoatTypes || [];
-    const ids = a.allowedBoatIds || [];
-    if (!types.length && !ids.length) return 'כל הסירות';
-    const parts = [];
-    if (types.length) parts.push(`סוגים: ${types.join(', ')}`);
-    if (ids.length) {
-      const names = ids.map(id => boats.find(b=>b.id===id)?.name).filter(Boolean);
-      if (names.length) parts.push(`ספציפי: ${names.join(', ')}`);
-    }
-    return parts.join(' | ');
-  };
+  const groupOrder=useMemo(()=>[
+    ...boatTypes.filter(t=>grouped[t]),
+    ...(grouped['כל הסירות']?['כל הסירות']:[]),
+    ...(grouped['ספציפי']?['ספציפי']:[]),
+  ],[boatTypes,grouped]);
+
+  const toggleGroup=key=>setOpenGroups(prev=>{const n=new Set(prev);n.has(key)?n.delete(key):n.add(key);return n;});
 
   return(
     <div>
-      <div className="card" style={{background:'#fffbeb',borderColor:'#fbbf24'}}>
+      <div className="card" style={{background:'#fffbeb',borderColor:'#fbbf24',marginBottom:12}}>
         <h3 style={{marginBottom:8,fontSize:14}}>☀️ שעות אור (חל על כל הפעילויות)</h3>
         <div style={{display:'flex',gap:12,alignItems:'center'}}>
           <span style={{fontSize:13}}>מ:</span>
@@ -1107,30 +1108,54 @@ function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,dayli
         {activities.length===0?(
           <div className="empty-state"><div className="icon">📋</div><p>טרם הוגדרו פעילויות. לחץ "+ הוסף פעילות" כדי להתחיל.</p></div>
         ):(
-          <table>
-            <thead><tr><th>#</th><th>שם</th><th>סוג</th><th>אורך</th><th>סה״כ/חודש</th><th>מדריכים</th><th>חלוקת שעות</th><th>חלוקת ימים</th><th>סירות מתאימות</th><th>פעולות</th></tr></thead>
-            <tbody>
-              {activities.map((a,i)=>(
-                <tr key={a.id} style={(a.totalPerMonth||0) === 0 ? {opacity:0.5} : {}}>
-                  <td style={{color:'var(--text-light)'}}>{i+1}</td>
-                  <td style={{fontWeight:600}}>{a.name}{(a.totalPerMonth||0) === 0 ? ' (מושבת)' : ''}</td>
-                  <td style={{fontSize:12}}>{a.activityType==='club'?'מועדון':a.activityType==='advanced'?'מתקדמות':'תלמידים'}{(a.specificDates&&a.specificDates.length>0)?' 📅':''}</td>
-                  <td style={{fontSize:13}}>{a.durationHours||3}ש'</td>
-                  <td style={{fontWeight:600,fontSize:14}}>{a.totalPerMonth||0}</td>
-                  <td style={{fontSize:13}}>{a.instructorsNeeded||1}</td>
-                  <td style={{fontSize:12}}>{summarizeTimeBreakdown(a)}</td>
-                  <td style={{fontSize:12}}>{summarizeDayBreakdown(a)}</td>
-                  <td style={{fontSize:12,color:'var(--text-light)'}}>{summarizeBoats(a)}</td>
-                  <td>
-                    <div style={{display:'flex',gap:4}}>
-                      <button className="btn-icon" onClick={()=>{setEditing(a);setShowModal(true);}}>✏️</button>
-                      <button className="btn-icon" onClick={()=>{setActivities(p=>p.filter(x=>x.id!==a.id));showToast('פעילות הוסרה');}}>🗑️</button>
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:8}}>
+            {groupOrder.map(groupKey=>{
+              const acts=grouped[groupKey]||[];
+              const isOpen=openGroups.has(groupKey);
+              const totalPerMonth=acts.reduce((s,a)=>s+(Number(a.totalPerMonth)||0),0);
+              return(
+                <div key={groupKey} style={{border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',cursor:'pointer',background:'var(--bg)',userSelect:'none'}} onClick={()=>toggleGroup(groupKey)}>
+                    <span style={{width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:5,border:'1px solid var(--border)',fontSize:16,fontWeight:700,flexShrink:0,background:'#fff'}}>{isOpen?'−':'+'}</span>
+                    <span style={{fontWeight:700,fontSize:14,flex:1}}>{groupKey}</span>
+                    <span style={{fontSize:12,color:'var(--text-light)',background:'var(--primary-light)',borderRadius:4,padding:'2px 8px',marginLeft:6}}>{acts.length} פעילויות</span>
+                    <span style={{fontSize:12,color:'var(--text-light)'}}>{totalPerMonth} סה״כ/חודש</span>
+                  </div>
+                  {isOpen&&(
+                    <div style={{borderTop:'1px solid var(--border)'}}>
+                      <table style={{margin:0}}>
+                        <thead>
+                          <tr>
+                            <th>שם פעילות</th>
+                            <th>אורך</th>
+                            <th>סה״כ/חודש</th>
+                            <th>מדריכים</th>
+                            <th>פעולות</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {acts.map(a=>(
+                            <tr key={a.id} style={(a.totalPerMonth||0)===0?{opacity:.5}:{}}>
+                              <td style={{fontWeight:600}}>{a.name}{(a.totalPerMonth||0)===0?' (מושבת)':''}{(a.specificDates&&a.specificDates.length>0)?' 📅':''}</td>
+                              <td style={{fontSize:13}}>{a.durationHours||3}ש'</td>
+                              <td style={{fontWeight:600,fontSize:14}}>{a.totalPerMonth||0}</td>
+                              <td style={{fontSize:13}}>{a.instructorsNeeded||1}</td>
+                              <td>
+                                <div style={{display:'flex',gap:4}}>
+                                  <button className="btn-icon" onClick={()=>{setEditing(a);setShowModal(true);}}>✏️</button>
+                                  <button className="btn-icon" onClick={()=>{setActivities(p=>p.filter(x=>x.id!==a.id));showToast('פעילות הוסרה');}}>🗑️</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
       {showModal&&<ActivityModal activity={editing} boats={boats} onSave={(data)=>{
@@ -1141,7 +1166,6 @@ function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,dayli
     </div>
   );
 }
-
 function ActivityModal({activity,boats,onSave,onClose}){
   const [name,setName]=useState(activity?.name||'');
   const [activityType,setActivityType]=useState(activity?.activityType||'students'); // 'students' | 'advanced' | 'club'
@@ -1910,8 +1934,11 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
   // Inline format helpers for display
   const fmtTime = (min) => `${Math.floor(min/60).toString().padStart(2,'0')}:${(min%60).toString().padStart(2,'0')}`;
 
+
+
   return (
     <div>
+
       <div className="card">
         <div className="card-header">
           <h2>📅 לוח יומי
@@ -1961,6 +1988,7 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
                     <div style={{fontSize:10,color:'var(--text-light)',fontWeight:400}}>{b.type||''}</div>
                   </th>
                 ))}
+
               </tr>
             </thead>
             <tbody>
@@ -5508,9 +5536,9 @@ function EditScheduleItemModal({item, instructors, activities, boats, month, val
 
   const handleUpdate = () => {
     const v = handleValidate();
-    if (v.errors.length > 0) return; // block on hard errors
-    if (v.warnings.length > 0) {
-      if (!window.confirm(`יש אזהרות רכות:\n${v.warnings.join('\n')}\n\nלהמשיך בכל זאת?`)) return;
+    const all = [...v.errors.map(e=>`⚠️ ${e}`),...v.warnings.map(w=>`ℹ️ ${w}`)];
+    if (all.length > 0) {
+      if (!window.confirm(`התראות:\n${all.join('\n')}\n\nלהמשיך בכל זאת?`)) return;
     }
     onSave(buildUpdated());
   };
@@ -5564,7 +5592,7 @@ function EditScheduleItemModal({item, instructors, activities, boats, month, val
           <div style={{marginTop:10}}>
             {validation.errors.length > 0 && (
               <div style={{background:'#fee2e2',border:'1px solid var(--danger)',padding:10,borderRadius:6,marginBottom:8}}>
-                <b style={{color:'var(--danger)'}}>🚫 שגיאות (חוקים קשיחים — לא ניתן לעדכן):</b>
+                <b style={{color:'var(--danger)'}}>⚠️ אזהרות חמורות (ניתן לעקוף באישור):</b>
                 <ul style={{margin:'4px 0 0',paddingRight:18,fontSize:13}}>
                   {validation.errors.map((e,i) => <li key={i}>{e}</li>)}
                 </ul>
@@ -5572,7 +5600,7 @@ function EditScheduleItemModal({item, instructors, activities, boats, month, val
             )}
             {validation.warnings.length > 0 && (
               <div style={{background:'#fef3c7',border:'1px solid #fbbf24',padding:10,borderRadius:6,marginBottom:8}}>
-                <b style={{color:'#92400e'}}>⚠️ אזהרות (חוקים רכים — יתעדכן בכל זאת):</b>
+                <b style={{color:'#92400e'}}>ℹ️ אזהרות רכות:</b>
                 <ul style={{margin:'4px 0 0',paddingRight:18,fontSize:13}}>
                   {validation.warnings.map((w,i) => <li key={i}>{w}</li>)}
                 </ul>
@@ -5586,7 +5614,7 @@ function EditScheduleItemModal({item, instructors, activities, boats, month, val
           </div>
         )}
         <div style={{display:'flex',gap:8,marginTop:14}}>
-          <button className="btn btn-primary" onClick={handleUpdate} disabled={validation && validation.errors.length > 0}>✅ עדכן</button>
+          <button className="btn btn-primary" onClick={handleUpdate}>✅ עדכן</button>
           <button className="btn btn-outline" onClick={onCancel}>ביטול</button>
         </div>
       </div>
@@ -6556,7 +6584,1110 @@ function InboxItemModal({item,onClose,onApply,onReject}){
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
+function WeeklyPlanTab({instructors,availability,month,activities,assignments,setTab,weeklySelections,setWeeklySelections,setAssignmentViewDate}){
+  const [weekIdx,setWeekIdx]=React.useState(0);
+  const {weeks,mo}=React.useMemo(()=>{
+    const [yr,moN]=month.split('-').map(Number);
+    const dim=new Date(yr,moN,0).getDate();
+    const days=[];
+    for(let i=1;i<=dim;i++){const d=new Date(yr,moN-1,i);days.push({date:i,dayOfWeek:d.getDay(),dayName:DAYS_HEB[d.getDay()]});}
+    const weeks=[];let wk=[];
+    for(const d of days){if(d.dayOfWeek===0&&wk.length>0){weeks.push(wk);wk=[];}wk.push(d);}
+    if(wk.length)weeks.push(wk);
+    return{weeks,mo:moN};
+  },[month]);
+  const safeIdx=Math.min(weekIdx,weeks.length-1);
+  const weekdays=(weeks[safeIdx]||[]).filter(d=>d.dayOfWeek<=4);
+  const allMonthDays=React.useMemo(()=>weeks.flat(),[weeks]);
+  const allFridays=React.useMemo(()=>allMonthDays.filter(d=>d.dayOfWeek===5),[allMonthDays]);
+  const allSaturdays=React.useMemo(()=>allMonthDays.filter(d=>d.dayOfWeek===6),[allMonthDays]);
+  const weekAllDays=(weeks[safeIdx]||[]);
+  const availableThisWeek=React.useMemo(()=>{
+    const s=new Set();
+    instructors.forEach(inst=>{
+      const av=(availability&&availability[`${inst.id}_${month}`])||{};
+      if(weekAllDays.some(d=>HOURS.some(h=>{const v=av[`${d.date}_${h}`];return v===true||v==='work';}))){s.add(inst.id);}
+    });
+    return s;
+  },[weekAllDays,instructors,availability,month]);
+
+  const BAND_ANCHORS={
+    morning:['07:00','08:00'],
+    midday: ['10:00','15:00'],
+    evening:['15:00'],
+  };
+  const getInstsBand=(date,band)=>instructors.filter(inst=>{
+    const avail=(availability&&availability[`${inst.id}_${month}`])||{};
+    return BAND_ANCHORS[band].some(h=>{
+      const v=avail[`${date}_${h}`];
+      return v===true||v==='work';
+    });
+  });
+
+  const chipSt=(priority,selected)=>{
+    const c=PRIORITY_CHIP_COLORS[priority]||{bg:'#F1EFE8',color:'#444441',border:'#888780'};
+    return{background:c.bg,color:c.color,border:`${selected?3:1}px solid ${c.border}`,borderRadius:6,padding:'3px 8px',fontSize:12,fontWeight:selected?700:500,cursor:'pointer',display:'inline-block',margin:'2px',opacity:selected?1:0.75};
+  };
+
+  const toggleInstSel=(date,instId)=>{
+    setWeeklySelections(prev=>{
+      const cur=prev[date]||[];
+      const has=cur.includes(instId);
+      return{...prev,[date]:has?cur.filter(id=>id!==instId):[...cur,instId]};
+    });
+  };
+  const navigateDay=(date)=>{setAssignmentViewDate(date);setTab('assignmentview');};
+
+  const [showWeekend,setShowWeekend]=React.useState(false);
+
+  const getHourRanges=(inst,dayNum)=>{
+    const av=(availability&&availability[`${inst.id}_${month}`])||{};
+    const hrs=HOURS.map(h=>parseInt(h)).filter(h=>{
+      const v=av[`${dayNum}_${h.toString().padStart(2,'0')}:00`];
+      return v===true||v==='work';
+    });
+    if(!hrs.length)return[];
+    const ranges=[];let s=hrs[0],e=hrs[0],isW=av[`${dayNum}_${hrs[0].toString().padStart(2,'0')}:00`]==='work';
+    for(let i=1;i<hrs.length;i++){
+      const h=hrs[i];const w=av[`${dayNum}_${h.toString().padStart(2,'0')}:00`]==='work';
+      if(h===e+1&&w===isW){e=h;}else{ranges.push({s,e,w:isW});s=h;e=h;isW=w;}
+    }
+    ranges.push({s,e,w:isW});
+    return ranges.map(r=>({label:`${r.s.toString().padStart(2,'0')}:00–${(r.e+1).toString().padStart(2,'0')}:00`,work:r.w}));
+  };
+
+  const weekendPairs=React.useMemo(()=>{
+    const pairs=[];
+    const maxLen=Math.max(allFridays.length,allSaturdays.length);
+    for(let i=0;i<maxLen;i++) pairs.push({fri:allFridays[i]||null,sat:allSaturdays[i]||null});
+    return pairs;
+  },[allFridays,allSaturdays]);
+
+  const weekendAvailSet=React.useMemo(()=>{
+    const s=new Set();
+    instructors.forEach(inst=>{
+      const av=(availability&&availability[`${inst.id}_${month}`])||{};
+      const allWE=[...allFridays,...allSaturdays];
+      if(allWE.some(d=>HOURS.some(h=>{const v=av[`${d.date}_${h}`];return v===true||v==='work';}))){s.add(inst.id);}
+    });
+    return s;
+  },[allFridays,allSaturdays,instructors,availability,month]);
+
+  return(
+    <div className="card">
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+        <h2 style={{margin:0}}>🗓️ לוח תכנון שבועי</h2>
+        <span style={{fontSize:13,color:'var(--text-light)'}}>{month}</span>
+        <div style={{display:'flex',gap:6,marginRight:'auto'}}>
+          {weeks.map((_,i)=><button key={i} className={`btn btn-${i===safeIdx&&!showWeekend?'primary':'outline'} btn-sm`} onClick={()=>{setWeekIdx(i);setShowWeekend(false);}}>שבוע {i+1}</button>)}
+          <button className={`btn btn-${showWeekend?'primary':'outline'} btn-sm`} onClick={()=>setShowWeekend(true)}>🏖️ סוף שבוע</button>
+        </div>
+      </div>
+      {!showWeekend&&<>
+      <div style={{display:'flex',gap:12,marginBottom:12,flexWrap:'wrap'}}>
+        {[['high','#7F77DD','עדיפות גבוהה'],['medium','#1D9E75','עדיפות בינונית'],['low','#BA7517','עדיפות נמוכה']].map(([p,col,lbl])=>(
+          <span key={p} style={{display:'flex',alignItems:'center',gap:5,fontSize:12,color:'var(--text-light)'}}>
+            <span style={{width:10,height:10,borderRadius:'50%',background:col,display:'inline-block'}}/>
+            {lbl}
+          </span>
+        ))}
+      </div>
+      <div style={{overflowX:'auto'}}>
+        <table style={{borderCollapse:'collapse',width:'100%',tableLayout:'fixed'}}>
+          <thead>
+            <tr>
+              <th style={{width:80,fontSize:12,color:'var(--text-light)',padding:'6px 4px',borderBottom:'1px solid #e2e8f0',textAlign:'right'}}>חלון</th>
+              {weekdays.map(d=>{
+                const nSel=(weeklySelections[d.date]||[]).length;
+                return(
+                  <th key={d.date} style={{fontSize:12,color:'var(--text)',padding:'6px 4px',borderBottom:'1px solid #e2e8f0',textAlign:'center',fontWeight:600}}>
+                    {d.dayName}<br/>
+                    <span style={{fontSize:11,fontWeight:400,color:'var(--text-light)'}}>{d.date}/{mo}</span><br/>
+                    <button className="btn btn-primary btn-sm" style={{fontSize:10,padding:'2px 6px',marginTop:2}} onClick={()=>navigateDay(d.date)}>
+                      {nSel>0?`📋 ${nSel} נבחרו`:'📋 לוח יומי'}
+                    </button>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {BAND_KEYS.map(band=>(
+              <tr key={band}>
+                <td style={{fontSize:11,color:'var(--text-light)',padding:'8px 4px',verticalAlign:'top',borderTop:'1px solid #f1f5f9',whiteSpace:'nowrap'}}>
+                  <strong style={{color:'var(--text)',display:'block',fontSize:12}}>{BAND_LABELS[band].split(' ')[0]}</strong>
+                  <span>{BAND_LABELS[band].split(' ')[1]}</span>
+                </td>
+                {weekdays.map(d=>{
+                  const insts=getInstsBand(d.date,band);
+                  return(
+                    <td key={d.date} style={{padding:4,verticalAlign:'top',borderTop:'1px solid #f1f5f9',minHeight:70}}>
+                      {insts.length===0
+                        ?<span style={{fontSize:11,color:'#cbd5e1'}}>—</span>
+                        :insts.map(inst=>{
+                          const isSel=(weeklySelections[d.date]||[]).includes(inst.id);
+                          const avail=availability[`${inst.id}_${month}`]||{};
+                          const hasWork=HOURS.some(h=>avail[`${d.date}_${h}`]==='work');
+                          return(
+                            <div key={inst.id} style={chipSt(inst.priority,isSel||hasWork)} onClick={()=>toggleInstSel(d.date,inst.id)} title={isSel?'לחץ להסרה':hasWork?'עובד — יוצג אוטומטית':'לחץ לבחירה'}>
+                              {hasWork?'★ ':isSel?'✓ ':''}{inst.name.split(' ').slice(0,2).map((w,i)=>i===0?w:w[0]+'.').join(' ')}
+                            </div>
+                          );
+                        })
+                      }
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {weekdays.length===0&&<div className="empty-state"><div className="icon">🗓️</div><p>אין ימי חול בשבוע זה.</p></div>}
+      </> }
+      {showWeekend&&(
+        <div>
+          {weekendPairs.map((pair,pi)=>(
+            <div key={pi} style={{marginBottom:20}}>
+              <div style={{fontSize:13,fontWeight:600,color:'var(--text-light)',marginBottom:10,paddingBottom:6,borderBottom:'1px solid #e2e8f0'}}>
+                סוף שבוע {pi+1}
+              </div>
+              <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+                {[{day:pair.fri,label:'שישי'},{day:pair.sat,label:'שבת'}].map(({day,label})=>{
+                  if(!day)return null;
+                  const dayInsts=instructors.filter(inst=>{
+                    const av=(availability&&availability[`${inst.id}_${month}`])||{};
+                    return HOURS.some(h=>{const v=av[`${day.date}_${h}`];return v===true||v==='work';});
+                  });
+                  return(
+                    <div key={label} style={{flex:'1 1 220px',minWidth:200,background:'#f8fafc',borderRadius:10,padding:'12px 14px',border:'0.5px solid #e2e8f0'}}>
+                      <div style={{fontWeight:600,fontSize:13,marginBottom:10}}>
+                        {label} {day.date}/{mo}
+                      </div>
+                      {dayInsts.length===0?(
+                        <div style={{fontSize:12,color:'#94a3b8',fontStyle:'italic'}}>אין מדריכים זמינים</div>
+                      ):(
+                        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                          {dayInsts.map(inst=>{
+                            const c=PRIORITY_CHIP_COLORS[inst.priority]||{bg:'#F1EFE8',color:'#444441',border:'#888780'};
+                            const ranges=getHourRanges(inst,day.date);
+                            const isSel=(weeklySelections[day.date]||[]).includes(inst.id);
+                            return(
+                              <div key={inst.id} style={{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer',padding:'4px 6px',borderRadius:6,background:isSel?'#eff6ff':'transparent',border:isSel?'1px solid #bfdbfe':'1px solid transparent'}}
+                                onClick={()=>toggleInstSel(day.date,inst.id)}>
+                                <span style={{background:c.bg,color:c.color,border:`1px solid ${c.border}`,borderRadius:4,padding:'1px 7px',fontSize:11,fontWeight:500,whiteSpace:'nowrap',flexShrink:0}}>
+                                  {isSel?'✓ ':''}{inst.name.split(' ').slice(0,2).join(' ')}
+                                </span>
+                                <span style={{fontSize:11,color:'#475569',lineHeight:'18px'}}>
+                                  {ranges.map((r,ri)=>(
+                                    <span key={ri} style={{display:'inline-block',marginLeft:4,color:r.work?'#d97706':'#16a34a'}}>
+                                      {r.work?'★':''}{r.label}
+                                    </span>
+                                  ))}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {instructors.some(i=>i.formNotes&&(showWeekend?weekendAvailSet:availableThisWeek).has(i.id))&&(
+        <div style={{marginTop:16,borderTop:'1px solid #e2e8f0',paddingTop:12}}>
+          <div style={{fontSize:12,fontWeight:600,color:'var(--text-light)',marginBottom:8}}>📝 הערות מדריכים</div>
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {instructors.filter(i=>i.formNotes&&(showWeekend?weekendAvailSet:availableThisWeek).has(i.id)).map(i=>{
+              const c=PRIORITY_CHIP_COLORS[i.priority]||{bg:'#F1EFE8',color:'#444',border:'#ccc'};
+              return(
+                <div key={i.id} style={{display:'flex',gap:8,alignItems:'flex-start',background:c.bg,border:`1px solid ${c.border}`,borderRadius:6,padding:'6px 10px',fontSize:12}}>
+                  <span style={{fontWeight:700,color:c.color,whiteSpace:'nowrap',minWidth:80}}>{i.name}</span>
+                  <span style={{color:'#374151',whiteSpace:'pre-wrap'}}>{i.formNotes}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// Boat-name → boat-type mapping
+const BOAT_TYPE_BY_NAME=(name)=>{
+  const n=name||'';
+  if(n==='עידו')return['מנועית'];
+  if(n==='ושתי'||n==='אסתר')return['קטמרן'];
+  if(n==='קטמנדו')return['קטמנדו'];
+  if(n==='דניאל'||n==='סבא שמשון')return['בי"ס'];
+  if(n==='ליאור')return['בי"ס','מונוהול'];
+  return['מונוהול'];
+};
+const TYPE_DUR_MAP={'מנועית':2,'בי"ס':2,'בי״ס':2,'קטמנדו':3,'מונוהול':3,'קטמרן':3};
+const normType=s=>(s||'').replace(/["״]/g,'');
+const getDurByType=t=>{'use strict';const n=normType(t);return({'מנועית':2,'ביס':2,'קטמנדו':3,'מונוהול':3,'קטמרן':3})[n]||TYPE_DUR_MAP[t]||null;};
+
+function ManualEventDialog({dlg,dlgActId,setDlgActId,dlgStart,setDlgStart,dlgInstId,setDlgInstId,activities,displayInsts,instructors,onSave,onDelete,onClose}){
+  if(!dlg)return null;
+  const boatTypes=dlg.boatTypes||[];
+
+  // Filter activities to those allowed for this boat type
+  const actList=React.useMemo(()=>{
+    if(!boatTypes.length)return activities;
+    const filtered=activities.filter(a=>{if(!(Number(a.totalPerMonth)>0))return false;
+      const types=a.allowedBoatTypes||[];
+      const ids=a.allowedBoatIds||[];
+      const norm=s=>s.replace(/["״]/g,'');
+      if(types.length)return types.some(t=>boatTypes.some(bt=>norm(t)===norm(bt)));
+      if(ids.length)return ids.includes(dlg?.boatId);
+      return false; // activity has no restriction → not specific to any boat type
+    });
+    return filtered.length?filtered:activities; // fallback to all if nothing configured
+  },[activities,boatTypes]);
+
+  const act=dlgActId?actList.find(a=>a.id===dlgActId)||null:null;
+
+  // Duration: from boat type (via selected activity's type intersection), not activity field
+  const durHours=React.useMemo(()=>{
+    // Duration comes from the selected activity's type, matched against this boat's allowed types
+    if(act){
+      const actTypes=act.allowedBoatTypes||[];
+      // fuzzy intersection: normalize quote chars for comparison
+      const inter=actTypes.filter(t=>boatTypes.some(bt=>normType(t)===normType(bt)));
+      if(inter.length){const d=getDurByType(inter[0]);if(d)return d;}
+      // fallback: use boat's primary type duration
+      for(const bt of boatTypes){const d=getDurByType(bt);if(d)return d;}
+    }
+    // No activity selected: use boat's primary type
+    for(const bt of boatTypes){const d=getDurByType(bt);if(d)return d;}
+    return 3;
+  },[act,boatTypes]);
+
+  const toM=t=>{const[h,m]=(t||'00:00').split(':').map(Number);return h*60+(m||0);};
+  const frM=m=>`${Math.floor(m/60).toString().padStart(2,'0')}:${(m%60).toString().padStart(2,'0')}`;
+  const endStr=frM(toM(dlgStart)+durHours*60);
+  const inst=instructors.find(i=>i.id===dlgInstId);
+
+  const save=()=>{
+    onSave({id:dlg.event?.id||null,boatId:dlg.boatId,boatName:dlg.boatName,date:dlg.selDate,startHour:dlgStart,endHour:endStr,activityId:act?.id||null,activityName:act?.name||'',instructorId:dlgInstId||null,instructorName:inst?.name||'',source:'manual'});
+  };
+
+  // Label: show boat type(s)
+  const typeLabel=boatTypes.length?boatTypes.join(' / '):'';
+  const durLabel=`${durHours} שעות`;
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
+      <div style={{background:'var(--card)',borderRadius:10,padding:20,minWidth:290,maxWidth:350,direction:'rtl',boxShadow:'0 8px 32px rgba(0,0,0,.2)'}} onClick={e=>e.stopPropagation()}>
+        {typeLabel&&<div style={{fontSize:11,color:'var(--text-light)',marginBottom:8,display:'flex',gap:6,alignItems:'center'}}>
+          <span style={{background:'#ede9fe',color:'#5b21b6',borderRadius:4,padding:'2px 7px',fontWeight:700}}>{typeLabel}</span>
+          <span style={{background:'#f0fdf4',color:'#16a34a',borderRadius:4,padding:'2px 7px',fontWeight:600}}>{durLabel}</span>
+        </div>}
+        <div className="form-group" style={{marginBottom:12}}>
+          <label style={{fontWeight:700,fontSize:14,marginBottom:5,display:'block'}}>סוג פעילות</label>
+          <select value={dlgActId} onChange={e=>setDlgActId(e.target.value)} style={{width:'100%',fontSize:13,padding:'6px 8px'}}>
+            <option value="">— לא נקבע —</option>
+            {actList.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:12}}>
+          <div style={{flex:1}}>
+            <label style={{fontSize:12,color:'var(--text-light)',display:'block',marginBottom:3}}>שעת התחלה</label>
+            <input type="time" value={dlgStart} onChange={e=>setDlgStart(e.target.value)} style={{width:'100%',fontSize:12,padding:'5px'}}/>
+          </div>
+          <div style={{flex:1}}>
+            <label style={{fontSize:12,color:'var(--text-light)',display:'block',marginBottom:3}}>סיום (אוטו)</label>
+            <input value={endStr} readOnly style={{width:'100%',fontSize:12,padding:'5px',background:'#f8fafc',color:'var(--text-light)'}}/>
+          </div>
+        </div>
+        <div className="form-group" style={{marginBottom:16}}>
+          <label style={{fontSize:12,color:'var(--text-light)',display:'block',marginBottom:3}}>מדריך</label>
+          <select value={dlgInstId} onChange={e=>setDlgInstId(e.target.value)} style={{width:'100%',fontSize:13,padding:'6px 8px'}}>
+            <option value="">— ללא מדריך —</option>
+            {displayInsts.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+          </select>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {dlg.mode==='edit'&&<button className="btn btn-danger" style={{marginLeft:'auto'}} onClick={()=>onDelete(dlg.event.id)}>מחק</button>}
+          <button className="btn btn-outline" style={{marginLeft:dlg.mode==='add'?'auto':0}} onClick={onClose}>ביטול</button>
+          <button className="btn btn-primary" onClick={save}>{dlg.mode==='add'?'הוסף':'שמור'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssignmentDayView({boats,instructors,assignments,setAssignments,activities,crmEvents,roomBoatMap,month,availability,weeklySelections,initDate,setTab}){
+  const BOAT_COL_ORDER=['קטמנדו','סבא שמשון','דניאל','ליאור','רונית','נאווה','מישל','כרמן','כרמל גת','רוני','אסתר','ושתי','עידו'];
+  const sortedBoats=useMemo(()=>[...boats].sort((a,b)=>{
+    const ia=BOAT_COL_ORDER.indexOf(a.name),ib=BOAT_COL_ORDER.indexOf(b.name);
+    if(ia===-1&&ib===-1)return(a.name||'').localeCompare(b.name||'','he');
+    if(ia===-1)return 1;if(ib===-1)return -1;return ia-ib;
+  }),[boats]);
+
+  const [selectedDateNum,setSelectedDateNum]=useState(()=>{
+    try{const s=localStorage.getItem('asgn_view_date');return s?Number(s):1;}catch{return 1;}
+  });
+  useEffect(()=>{try{localStorage.setItem('asgn_view_date',String(selectedDateNum));}catch{}},[selectedDateNum]);
+  useEffect(()=>{if(initDate)setSelectedDateNum(initDate);},[initDate]);
+
+  const [y,mNum]=month.split('-').map(Number);
+  const lastDay=new Date(y,mNum,0).getDate();
+  const selDate=Math.min(Math.max(selectedDateNum,1),lastDay);
+  const selDateObj=new Date(y,mNum-1,selDate);
+  const dayName=DAYS_HEB[selDateObj.getDay()];
+  const dateStr=`${y}-${mNum.toString().padStart(2,'0')}-${selDate.toString().padStart(2,'0')}`;
+
+  const CAL_START_HOUR=7,CAL_END_HOUR=22;
+  const calHours=Array.from({length:CAL_END_HOUR-CAL_START_HOUR},(_,i)=>CAL_START_HOUR+i);
+
+  const stripHtml=(s)=>(s||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim();
+  const extractParens=(text)=>{const s=stripHtml(text);const m=[...s.matchAll(/\(([^)]+)\)/g)];return m.length?m[m.length-1][1].trim():'';};
+  const timeToMin=(t)=>{const[h,m]=(t||'00:00').split(':').map(Number);return h*60+(m||0);};
+  const fmtTime=(min)=>`${Math.floor(min/60).toString().padStart(2,'0')}:${(min%60).toString().padStart(2,'0')}`;
+
+  const resolveBoatId=(roomId)=>{
+    if(roomId==null)return null;
+    const idStr=String(roomId);
+    if(CLASSROOM_NAMES_BY_ROOM_ID[idStr])return null;
+    if(IGNORED_ROOM_IDS.has(idStr))return null;
+    if(roomBoatMap[roomId])return roomBoatMap[roomId];
+    const bn=DEFAULT_ROOM_BOAT_MAP_BY_NAME[idStr];if(!bn)return null;
+    const f=boats.find(b=>(b.name||'').trim()===bn.trim());return f?f.id:null;
+  };
+
+  const rawSched=assignments[`schedule_${month}`];
+  const scheduledItems=useMemo(()=>{
+    if(!rawSched)return[];
+    return (Array.isArray(rawSched)?rawSched:Object.values(rawSched)).filter(s=>s.date===selDate&&s.boatId);
+  },[rawSched,selDate]);
+
+  const crmDayEvents=useMemo(()=>crmEvents.filter(e=>(e.startDate||e.date)===dateStr),[crmEvents,dateStr]);
+
+  const eventsByBoat=useMemo(()=>{
+    const map={};for(const b of boats)map[b.id]=[];
+    scheduledItems.forEach(s=>{
+      if(map[s.boatId])map[s.boatId].push({id:s.id,startMin:timeToMin(s.startHour),endMin:timeToMin(s.endHour),title:s.activityName,subtitle:s.instructorName||'',color:s.source==='manual'?'#5DCAA5':'#3b82f6',textColor:s.source==='manual'?'#04342C':'#fff',source:s.source||'schedule',startHour:s.startHour,endHour:s.endHour,boatId:s.boatId,boatName:s.boatName||'',activityId:s.activityId,instructorId:s.instructorId});
+    });
+    crmDayEvents.forEach(e=>{
+      const bid=resolveBoatId(e.roomId);if(!bid)return;
+      const stripped=stripHtml(e.text);const inst=extractParens(e.text);
+      if(map[bid])map[bid].push({startMin:timeToMin(e.startHour),endMin:timeToMin(e.endHour||'23:59'),title:stripped.split(/[(,]/)[0].trim()||'אירוע',subtitle:inst,color:e.color||'#94a3b8',textColor:'#1e293b',source:'crm'});
+    });
+    return map;
+  },[boats,scheduledItems,crmDayEvents]);
+
+  function buildLayout(events){
+    const layout={};for(let h=CAL_START_HOUR;h<CAL_END_HOUR;h++)layout[h]={type:'free'};
+    const sorted=events.slice().sort((a,b)=>a.startMin-b.startMin);
+    for(const ev of sorted){
+      const sh=Math.max(CAL_START_HOUR,Math.round(ev.startMin/60));
+      const eh=Math.min(CAL_END_HOUR,Math.ceil(ev.endMin/60));
+      if(eh<=sh)continue;const span=eh-sh;
+      if(layout[sh].type==='free'){layout[sh]={type:'start',events:[ev],span};for(let h=sh+1;h<eh;h++)layout[h]={type:'continue'};}
+      else if(layout[sh].type==='start'){layout[sh].events.push(ev);if(span>layout[sh].span){const oe=sh+layout[sh].span;for(let h=oe;h<sh+span;h++)if(layout[h]?.type==='free')layout[h]={type:'continue'};layout[sh].span=span;}}
+      else if(layout[sh].type==='continue'){let ah=sh;while(ah>CAL_START_HOUR&&layout[ah].type!=='start')ah--;if(layout[ah]?.type==='start'){layout[ah].events.push(ev);const rs=eh-ah;if(rs>layout[ah].span){const oe=ah+layout[ah].span;for(let h=oe;h<ah+rs;h++)if(layout[h]?.type==='free')layout[h]={type:'continue'};layout[ah].span=rs;}}}
+    }
+    return layout;
+  }
+
+  const layouts=useMemo(()=>{const m={};boats.forEach(b=>m[b.id]=buildLayout(eventsByBoat[b.id]||[]));return m;},[eventsByBoat]);
+
+  const displayInsts=useMemo(()=>{
+    const dow=selDateObj.getDay();
+    const isWeekend=dow===5||dow===6;
+    const selIds=weeklySelections?(weeklySelections[selDate]||[]):[];
+    const workIds=(availability?instructors.filter(inst=>HOURS.some(h=>(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`]==='work')).map(i=>i.id):[]);
+    let allIds;
+    if(isWeekend){
+      const availIds=availability?instructors.filter(inst=>HOURS.some(h=>{const v=(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`];return v===true||v==='work';})).map(i=>i.id):[];
+      allIds=[...new Set([...selIds,...workIds,...availIds])];
+    }else{
+      allIds=[...new Set([...selIds,...workIds])];
+    }
+    return instructors.filter(i=>allIds.includes(i.id)).sort((a,b)=>{const o={high:0,medium:1,low:2};return(o[a.priority]??1)-(o[b.priority]??1);});
+  },[instructors,availability,weeklySelections,month,selDate,selDateObj]);
+
+  // ── Weekly counters by boat type ────────────────────────────────────────────
+  // ── Monthly counters per boat type + activity ──────────────────────────────
+  const BS_TYPES=new Set(['בי"ס']);
+  const TYPE_ORDER=['קטמרן','מנועית','קטמנדו','מונוהול','בי"ס'];
+  const monthlyCounters=useMemo(()=>{
+    const schedArr=Array.isArray(rawSched)?rawSched:[];
+    const actDone={};
+    schedArr.forEach(s=>{if(s.activityId)actDone[s.activityId]=(actDone[s.activityId]||0)+1;});
+    const byType={};
+    activities.forEach(a=>{
+      const total=Number(a.totalPerMonth)||0;
+      if(!total)return;
+      const types=a.allowedBoatTypes||[];
+      const ids=a.allowedBoatIds||[];
+      const typeSet=new Set(types);
+      if(ids.length&&!types.length){ids.forEach(id=>{const t=boats.find(b=>b.id===id)?.type;if(t)typeSet.add(t);});}
+      if(!typeSet.size)return;
+      typeSet.forEach(t=>{
+        if(!byType[t])byType[t]={totalAll:0,doneAll:0,acts:[]};
+        const done=actDone[a.id]||0;
+        const remaining=Math.max(0,total-done);
+        byType[t].totalAll+=total;
+        byType[t].doneAll+=Math.min(done,total);
+        byType[t].acts.push({id:a.id,name:a.name,total,done,remaining});
+      });
+    });
+    return byType;
+  },[activities,boats,rawSched]);
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const prevDay=()=>setSelectedDateNum(Math.max(1,selDate-1));
+  const nextDay=()=>setSelectedDateNum(Math.min(lastDay,selDate+1));
+
+  const [dlg,setDlg]=useState(null);
+  const [dlgActId,setDlgActId]=useState('');
+  const [dlgStart,setDlgStart]=useState('09:00');
+  const [dlgInstId,setDlgInstId]=useState('');
+  const [dragEvId,setDragEvId]=useState(null);
+  const schedKey=`schedule_${month}`;
+
+  const openAdd=(boatId,boatName,h)=>{
+    const boatObj=boats.find(b=>b.id===boatId);
+    const actualType=boatObj?.type||'';
+    // ליאור serves both her type and the other (בי"ס/מונוהול)
+    // ליאור serves both בי"ס and מונוהול
+    const boatTypes=boatName==='ליאור'
+      ?[...new Set([actualType,'מונוהול','בי"ס','בי״ס'].filter(Boolean))]
+      :actualType?[actualType]:[];
+    // Strict filter: only activities explicitly allowed for this boat type/id, and active (totalPerMonth>0)
+    const filtered=(activities||[]).filter(a=>{if(!(Number(a.totalPerMonth)>0))return false;
+      const types=a.allowedBoatTypes||[];
+      const ids=a.allowedBoatIds||[];
+      if(types.length)return types.some(t=>boatTypes.some(bt=>t===bt||t.replace(/["״]/g,'')===bt.replace(/["״]/g,'')));
+      if(ids.length)return ids.includes(boatId);
+      return false;
+    });
+    const first=(filtered.length?filtered:activities)[0]||null;
+    setDlgActId('');
+    setDlgStart(`${h.toString().padStart(2,'0')}:00`);
+    setDlgInstId('');
+    setDlg({mode:'add',boatId,boatName,boatTypes,selDate,event:null});
+  };
+  const openEdit=(ev)=>{
+    const boat=boats.find(b=>b.id===ev.boatId);
+    const actualType=boat?.type||'';
+    const boatTypes=boat?.name==='ליאור'
+      ?[...new Set([actualType,'מונוהול','בי"ס','בי״ס'].filter(Boolean))]
+      :actualType?[actualType]:BOAT_TYPE_BY_NAME(boat?.name||'');
+    setDlgActId(ev.activityId||'');
+    setDlgStart(ev.startHour||'09:00');
+    setDlgInstId(ev.instructorId||'');
+    setDlg({mode:'edit',boatId:ev.boatId,boatName:ev.boatName,boatTypes,selDate,event:ev});
+  };
+  const saveManualEvent=(data)=>{
+    setAssignments(prev=>{
+      const arr=Array.isArray(prev[schedKey])?[...prev[schedKey]]:[];
+      if(data.id){const idx=arr.findIndex(s=>s.id===data.id);if(idx>=0)arr[idx]={...arr[idx],...data};else arr.push(data);}
+      else arr.push({...data,id:`m${Date.now()}`});
+      return{...prev,[schedKey]:arr};
+    });
+    setDlg(null);
+  };
+  const deleteManualEvent=(id)=>{
+    setAssignments(prev=>({...prev,[schedKey]:(Array.isArray(prev[schedKey])?prev[schedKey]:[]).filter(s=>s.id!==id)}));
+    setDlg(null);
+  };
+  const handleDrop=(tBoatId,tH,evId)=>{
+    setAssignments(prev=>{
+      const arr=Array.isArray(prev[schedKey])?[...prev[schedKey]]:[];
+      const idx=arr.findIndex(s=>s.id===evId);
+      if(idx<0)return prev;
+      const item=arr[idx];
+      const dur=timeToMin(item.endHour)-timeToMin(item.startHour);
+      const ns=`${tH.toString().padStart(2,'0')}:00`;
+      const nem=tH*60+dur;
+      const ne=`${Math.floor(nem/60).toString().padStart(2,'0')}:${(nem%60).toString().padStart(2,'0')}`;
+      const boat=boats.find(bb=>bb.id===tBoatId);
+      arr[idx]={...item,boatId:tBoatId,boatName:boat?.name||item.boatName,startHour:ns,endHour:ne};
+      return{...prev,[schedKey]:arr};
+    });
+    setDragEvId(null);
+  };
+
+  return(
+    <div>
+      <ManualEventDialog dlg={dlg} dlgActId={dlgActId} setDlgActId={setDlgActId} dlgStart={dlgStart} setDlgStart={setDlgStart} dlgInstId={dlgInstId} setDlgInstId={setDlgInstId} activities={activities||[]} displayInsts={displayInsts} instructors={instructors} onSave={saveManualEvent} onDelete={deleteManualEvent} onClose={()=>setDlg(null)}/>
+      <div className="card">
+        <div className="card-header">
+          <h2>✅ שיבוץ סופי
+            <span className="badge badge-primary" style={{marginRight:8,fontSize:14}}>{dateStr}</span>
+            <span className="badge badge-info" style={{marginRight:4}}>{dayName}</span>
+          </h2>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('weeklyplan')}>← לוח שבועי</button>
+            <button className="btn btn-outline btn-sm" onClick={prevDay} disabled={selDate===1}>◀ יום קודם</button>
+            <input type="number" min={1} max={lastDay} value={selDate} onChange={e=>setSelectedDateNum(Number(e.target.value)||1)} style={{width:60,textAlign:'center',padding:'6px'}}/>
+            <button className="btn btn-outline btn-sm" onClick={nextDay} disabled={selDate===lastDay}>יום הבא ▶</button>
+          </div>
+        </div>
+        {Object.keys(monthlyCounters).length>0&&(
+          <div style={{display:'flex',gap:10,padding:'8px 0 4px',alignItems:'stretch',width:'100%',boxSizing:'border-box'}}>
+            {[...TYPE_ORDER,...Object.keys(monthlyCounters).filter(t=>!TYPE_ORDER.includes(t))].filter(t=>monthlyCounters[t]).map(type=>{
+              const{totalAll,doneAll,acts}=monthlyCounters[type];
+              const remaining=Math.max(0,totalAll-doneAll);
+              const isBS=type.includes('בי')&&type.includes('ס');
+              return(
+                <div key={type} style={{background:'var(--card)',border:'0.5px solid #e2e8f0',borderRadius:8,padding:'10px 12px',flex:isBS?'4 1 0':'1 1 0',minWidth:0,overflow:'hidden'}}>
+                  <div style={{fontSize:11,fontWeight:700,color:'var(--text-light)'}}>{type}</div>
+                  <div style={{fontSize:26,fontWeight:700,color:remaining===0?'#16a34a':'var(--text)',lineHeight:1.1}}>{remaining}</div>
+                  <div style={{fontSize:11,color:'var(--text-light)',marginBottom:6}}>נותר מ-{totalAll}</div>
+                  <div style={{borderTop:'0.5px solid #e2e8f0',paddingTop:5,display:isBS?'grid':'flex',gridTemplateColumns:isBS?'1fr 1fr':undefined,gap:'1px 12px',flexDirection:isBS?undefined:'column'}}>
+                    {acts.map(a=>(
+                      <div key={a.id} style={{display:'flex',justifyContent:'space-between',gap:4,fontSize:12,padding:'1px 0'}}>
+                        <span style={{color:'var(--text-light)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</span>
+                        <span style={{fontWeight:600,color:a.remaining===0?'#16a34a':'var(--text)',flexShrink:0,marginRight:4}}>{a.remaining}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {displayInsts.length===0&&<div style={{padding:'8px 0',fontSize:12,color:'var(--text-light)'}}>בחר מדריכים בלוח השבועי כדי לראות את הזמינות שלהם כאן</div>}
+        <div style={{overflowX:'auto',marginTop:8}}>
+          <table className="cal-day-table">
+            <thead>
+              <tr>
+                <th style={{width:50}}>שעה</th>
+                {sortedBoats.map(b=>(
+                  <th key={b.id} style={{minWidth:90,fontSize:12,padding:'8px 4px',textAlign:'center'}}>
+                    <div style={{fontWeight:700}}>{b.name}</div>
+                    <div style={{fontSize:10,color:'var(--text-light)',fontWeight:400}}>{b.type||''}</div>
+                  </th>
+                ))}
+                {displayInsts.length>0&&<th style={{width:8,background:'transparent',padding:0}}/>}
+                {displayInsts.map(inst=>{
+                  const avail=(availability||{})[`${inst.id}_${month}`]||{};
+                  const hrs=HOURS.filter(h=>avail[`${selDate}_${h}`]===true||avail[`${selDate}_${h}`]==='work');
+                  const win=hrs.length?`${parseInt(hrs[0])}:00–${parseInt(hrs[hrs.length-1])+1}:00`:'';
+                  const c=PRIORITY_CHIP_COLORS[inst.priority]||{bg:'#F1EFE8',color:'#3C3489',border:'#888780'};
+                  const isWork=(availability&&HOURS.some(h=>(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`]==='work'))&&!(weeklySelections?.[selDate]||[]).includes(inst.id);
+                  return(
+                    <th key={inst.id} style={{minWidth:72,fontSize:11,padding:'5px 4px',textAlign:'center',background:c.bg,borderBottom:`3px solid ${c.border}`,color:c.color}}>
+                      <div style={{fontWeight:700}}>{inst.name.split(' ').slice(0,2).map((w,i)=>i===0?w:w[0]+'.').join(' ')}{isWork?' ★':''}</div>
+                      <div style={{fontSize:9,fontWeight:400,opacity:.8}}>{win}</div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {calHours.map(h=>(
+                <tr key={h} style={{height:36}}>
+                  <td style={{fontSize:11,color:'var(--text-light)',padding:'4px 6px',whiteSpace:'nowrap',background:'#f8fafc',fontWeight:600,height:36,boxSizing:'border-box'}}>{h.toString().padStart(2,'0')}:00</td>
+                  {sortedBoats.map(b=>{
+                    const cell=layouts[b.id][h];
+                    if(cell?.type==='continue')return null;
+                    if(cell?.type==='start'){
+                      const evs=cell.events||[];
+                      return(
+                        <td key={b.id} rowSpan={cell.span} style={{padding:0,fontSize:11,verticalAlign:'top',height:cell.span*36,border:'1px solid rgba(0,0,0,.1)'}}>
+                          <div style={{display:'flex',flexDirection:'row',gap:1,height:'100%'}}>
+                            {evs.map((ev,i)=>(
+                              <div key={i}
+                                draggable={ev.source==='manual'}
+                                onDragStart={ev.source==='manual'?e=>{e.dataTransfer.setData('evid',ev.id);setDragEvId(ev.id);}:null}
+                                onDragEnd={()=>setDragEvId(null)}
+                                onClick={ev.id?e=>{e.stopPropagation();openEdit(ev);}:null}
+                                style={{flex:1,background:ev.color,color:ev.textColor,padding:'4px 6px',borderRadius:3,minWidth:0,height:'100%',boxSizing:'border-box',overflow:'hidden',cursor:ev.id?'pointer':'default',border:ev.source==='manual'?'1.5px solid rgba(0,0,0,.12)':'none'}}>
+                                <div style={{fontSize:10,opacity:.85}}><span dir="ltr">{fmtTime(ev.startMin)}–{fmtTime(ev.endMin)}</span></div>
+                                <div style={{fontWeight:600,marginTop:2,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.title}</div>
+                                {ev.subtitle&&<div style={{fontSize:10,marginTop:2,opacity:.9,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.subtitle}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      );
+                    }
+                    return<td key={b.id} style={{borderTop:'1px dashed #e2e8f0',padding:0,cursor:'crosshair',background:dragEvId?'rgba(93,202,165,.08)':'transparent'}} title="לחץ להוספת פעילות" onClick={()=>openAdd(b.id,b.name,h)} onDragOver={e=>e.preventDefault()} onDrop={e=>{const id=e.dataTransfer.getData('evid');if(id)handleDrop(b.id,h,id);}}><div style={{height:36,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,color:'#9FE1CB',opacity:dragEvId?.6:0}}>+</div></td>;
+                  })}
+                  {displayInsts.length>0&&<td style={{width:8,background:'transparent',border:'none',padding:0}}/>}
+                  {displayInsts.map(inst=>{
+                    const hStr=`${h.toString().padStart(2,'0')}:00`;
+                    const v=(availability||{})[`${inst.id}_${month}`]?.[`${selDate}_${hStr}`];
+                    const c=PRIORITY_CHIP_COLORS[inst.priority]||{bg:'#F1EFE8',color:'#3C3489',border:'#888780'};
+                    if(v===true)return<td key={inst.id} style={{background:c.bg,borderTop:`1px solid ${c.border}`,padding:0,height:36}}/>;
+                    if(v==='work')return<td key={inst.id} style={{background:'#fef3c7',borderTop:'1px solid #fde68a',padding:0,height:36,textAlign:'center',verticalAlign:'middle',fontSize:14,lineHeight:'36px'}}>💼</td>;
+                    return<td key={inst.id} style={{background:'#f8fafc',borderTop:'1px dashed #e2e8f0',padding:0}}><div style={{height:36}}/></td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KATAMARAN WIZARD
+// ═══════════════════════════════════════════════════════════════════════════
+function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,availability,assignments,setAssignments,month,showToast}){
+  const SLOTS=[
+    {label:'07–10',boatStart:'07:00',boatEnd:'10:00',classStart:'06:00',classEnd:'07:00'},
+    {label:'10–13',boatStart:'10:00',boatEnd:'13:00',classStart:'09:00',classEnd:'10:00'},
+    {label:'13–16',boatStart:'13:00',boatEnd:'16:00',classStart:'12:00',classEnd:'13:00'},
+    {label:'16–19',boatStart:'16:00',boatEnd:'19:00',classStart:'15:00',classEnd:'16:00'},
+  ];
+  const CLASSROOMS=['מגלן','כיתה 3'];
+
+  const [y,mNum]=month.split('-').map(Number);
+
+  const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמרן')||null,[activities]);
+  const wasthiBoat=React.useMemo(()=>boats.find(b=>b.name==='ושתי')||null,[boats]);
+  const wasthiRoomId=React.useMemo(()=>{
+    if(!wasthiBoat)return null;
+    return Object.entries(roomBoatMap||{}).find(([,bId])=>bId===wasthiBoat.id)?.[0]||null;
+  },[wasthiBoat,roomBoatMap]);
+
+  // All valid start dates: exclude Fri (day 2 would be Sat) and last day if it overflows
+  const validDates=React.useMemo(()=>{
+    const dim=new Date(y,mNum,0).getDate();
+    const res=[];
+    for(let i=1;i<=dim;i++){
+      const dow=new Date(y,mNum-1,i).getDay();
+      if(dow===5)continue; // Fri → day 2 = Sat: forbidden
+      const d2=new Date(y,mNum-1,i+1);
+      if(d2.getMonth()!==mNum-1)continue; // day 2 overflows month
+      res.push({date:i,dow,dayName:DAYS_HEB[dow]});
+    }
+    return res;
+  },[month]);
+
+  const getDay2=(d1)=>{
+    const d=new Date(y,mNum-1,d1+1);
+    if(d.getMonth()!==mNum-1)return null;
+    return{date:d.getDate(),dow:d.getDay(),dayName:DAYS_HEB[d.getDay()]};
+  };
+
+  const initDate=validDates[0]?.date||0;
+  const [courses,setCourses]=React.useState([{id:1,startDate:initDate,slotIdx:1,classroom:'מגלן'}]);
+  const nextId=React.useRef(2);
+
+  const addCourse=()=>{const id=nextId.current++;setCourses(p=>[...p,{id,startDate:initDate,slotIdx:1,classroom:'מגלן'}]);};
+  const removeCourse=(id)=>setCourses(p=>p.filter(c=>c.id!==id));
+  const upd=(id,f,v)=>setCourses(p=>p.map(c=>c.id===id?{...c,[f]:v}:c));
+
+  // ושתי availability check
+  const isBoatAvail=(dayNum,slot)=>{
+    if(!wasthiBoat)return null; // unknown
+    const [bH]=slot.boatStart.split(':').map(Number);
+    const [eH]=slot.boatEnd.split(':').map(Number);
+    const slotS=bH*60,slotE=eH*60;
+    // CRM events
+    if(wasthiRoomId){
+      const busy=(crmEvents||[]).some(e=>{
+        if(!e.startDate)return false;
+        const iso=e.startDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if(!iso||Number(iso[3])!==dayNum||Number(iso[2])!==mNum)return false;
+        if(e.roomId&&String(e.roomId)!==String(wasthiRoomId))return false;
+        const[esH,esM]=(e.startHour||'00:00').split(':').map(Number);
+        const[eeH,eeM]=(e.endHour||'23:59').split(':').map(Number);
+        return(esH*60+esM)<slotE&&(eeH*60+eeM)>slotS;
+      });
+      if(busy)return false;
+    }
+    // Existing assignments
+    const sched=assignments[`schedule_${month}`]||[];
+    const busy2=sched.some(s=>{
+      if(s.boatId!==wasthiBoat.id||s.date!==dayNum||!s.startHour)return false;
+      const[sh]=s.startHour.split(':').map(Number);
+      const[eh]=(s.endHour||'00:00').split(':').map(Number);
+      return sh*60<slotE&&eh*60>slotS;
+    });
+    return!busy2;
+  };
+
+  // Instructor: available full 4h block (classStart–boatEnd) both days, qualified קטמרן
+  const isInstAvail=(inst,dayNum,slot)=>{
+    const av=(availability&&availability[`${inst.id}_${month}`])||{};
+    const[sH]=slot.classStart.split(':').map(Number);
+    const[eH]=slot.boatEnd.split(':').map(Number);
+    for(let h=sH;h<eH;h++){
+      if(av[`${dayNum}_${h.toString().padStart(2,'0')}:00`]!==true)return false;
+    }
+    return true;
+  };
+  const isQual=(inst)=>(inst.skills||[]).includes('קטמרן');
+
+  const getInsts=(d1,d2,slot)=>{
+    if(!d2)return{both:[],onlyD1:[],onlyD2:[]};
+    const both=instructors.filter(i=>isQual(i)&&isInstAvail(i,d1,slot)&&isInstAvail(i,d2.date,slot));
+    const onlyD1=instructors.filter(i=>isQual(i)&&isInstAvail(i,d1,slot)&&!isInstAvail(i,d2.date,slot));
+    const onlyD2=instructors.filter(i=>isQual(i)&&!isInstAvail(i,d1,slot)&&isInstAvail(i,d2.date,slot));
+    return{both,onlyD1,onlyD2};
+  };
+
+  const generateAssignments=(course)=>{
+    if(!katAct){showToast('לא נמצאה פעילות קטמרן');return;}
+    if(!wasthiBoat){showToast('לא נמצאה סירת ושתי');return;}
+    if(!course.startDate){showToast('בחר תאריך התחלה');return;}
+    const slot=SLOTS[course.slotIdx];
+    const day2=getDay2(course.startDate);
+    if(!day2){showToast('אין יום 2 בחודש זה');return;}
+    const{both}=getInsts(course.startDate,day2,slot);
+    const inst=both[0]||null;
+    const key=`schedule_${month}`;
+    const existing=(assignments[key]||[]).filter(a=>a._kataCourseId!==course.id);
+    const now=Date.now();
+    const newItems=[{d:course.startDate,dow:new Date(y,mNum-1,course.startDate).getDay()},{d:day2.date,dow:day2.dow}].map(({d,dow},i)=>({
+      id:`kata_${course.id}_${d}_${now+i}`,
+      _kataCourseId:course.id,
+      activityId:katAct.id,
+      activityName:'קטמרן',
+      boatId:wasthiBoat.id,
+      boatName:wasthiBoat.name,
+      boatType:wasthiBoat.type||'קטמרן',
+      date:d,dayOfWeek:dow,
+      startHour:slot.classStart,
+      endHour:slot.boatEnd,
+      instructorId:inst?.id||null,
+      instructorName:inst?.name||null,
+      extraInstructors:[],instructorsNeeded:1,
+      missingInstructors:inst?0:1,
+      status:inst?'assigned':'no_instructor',
+      source:'katamaran_wizard',
+    }));
+    setAssignments(prev=>({...prev,[key]:[...existing,...newItems]}));
+    showToast(`✓ נוצרו 2 שיבוצים לקורס קטמרן ${course.id}`);
+  };
+
+  const DayBlock=({dayNum,dayName,slot,label,isD2Ready=true})=>{
+    const boatOk=isBoatAvail(dayNum,slot);
+    return(
+      <div style={{border:'0.5px solid var(--border)',borderRadius:8,padding:'7px 9px',marginBottom:7,opacity:isD2Ready?1:0.4}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+          <span style={{fontSize:12,fontWeight:500}}>{dayName} {dayNum}/{mNum.toString().padStart(2,'0')}</span>
+          <span style={{fontSize:10,color:'var(--text-light)'}}>{label}</span>
+        </div>
+        <div style={{fontSize:10,color:'var(--text-light)',marginBottom:5}}>{slot.classStart}–{slot.classEnd} כיתה · {slot.boatStart}–{slot.boatEnd} ושתי</div>
+        {!isD2Ready?<div style={{fontSize:11,color:'var(--text-light)',fontStyle:'italic'}}>ממתין לתיקון יום 1</div>:(
+          <>
+            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,marginBottom:3}}>
+              <span style={{width:6,height:6,borderRadius:'50%',background:'#94a3b8',display:'inline-block',flexShrink:0}}/>
+              <span style={{color:'var(--text-light)'}}>כיתה — לא מנוהלת במערכת</span>
+            </div>
+            {boatOk===null?null:boatOk?(
+              <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11}}>
+                <span style={{width:6,height:6,borderRadius:'50%',background:'#16a34a',display:'inline-block',flexShrink:0}}/>
+                <span style={{color:'#16a34a'}}>ושתי פנויה</span>
+              </div>
+            ):(
+              <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11}}>
+                <span style={{width:6,height:6,borderRadius:'50%',background:'#dc2626',display:'inline-block',flexShrink:0}}/>
+                <span style={{color:'#dc2626',fontWeight:500}}>ושתי תפוסה ← שנה סלוט</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return(
+    <div style={{direction:'rtl',padding:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+        <h2 style={{fontSize:16,fontWeight:600,margin:0}}>אשף קטמרן — {month}</h2>
+        {(!katAct||!wasthiBoat)&&<span style={{fontSize:12,color:'var(--danger)',background:'#fee2e2',padding:'3px 10px',borderRadius:8}}>
+          ⚠ חסר: {[!katAct&&'פעילות קטמרן',!wasthiBoat&&'סירת ושתי'].filter(Boolean).join(' + ')}
+        </span>}
+      </div>
+      <div style={{fontSize:12,color:'var(--text-light)',marginBottom:14}}>
+        סלוטים: 07–10 / 10–13 / 13–16 / 16–19. כיתה = שעה שלפני. אותו מדריך חייב להיות זמין בשני הימים.
+      </div>
+
+      <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'flex-start'}}>
+        {courses.map((course,ci)=>{
+          const slot=SLOTS[course.slotIdx];
+          const day2=course.startDate?getDay2(course.startDate):null;
+          const d1info=validDates.find(d=>d.date===course.startDate);
+          const boatOk1=course.startDate?isBoatAvail(course.startDate,slot):null;
+          const boatOk2=day2?isBoatAvail(day2.date,slot):null;
+          const canProceed=boatOk1!==false&&boatOk2!==false;
+          const{both,onlyD1,onlyD2}=course.startDate&&day2?getInsts(course.startDate,day2,slot):{both:[],onlyD1:[],onlyD2:[]};
+          return(
+            <div key={course.id} style={{background:'var(--card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',flex:'1 1 230px',maxWidth:290}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                <span style={{fontWeight:500,fontSize:13}}>קורס {ci+1}</span>
+                {courses.length>1&&<button onClick={()=>removeCourse(course.id)} style={{background:'none',border:'none',color:'var(--danger,#dc2626)',cursor:'pointer',fontSize:18,lineHeight:1,padding:0}}>✕</button>}
+              </div>
+
+              <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 8px',alignItems:'center',fontSize:12,marginBottom:10}}>
+                <span style={{fontSize:11,color:'var(--text-light)'}}>יום 1</span>
+                <select value={course.startDate||''} onChange={e=>upd(course.id,'startDate',Number(e.target.value))}
+                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  <option value="">— בחר תאריך —</option>
+                  {validDates.map(d=><option key={d.date} value={d.date}>{d.dayName} {d.date}/{mNum.toString().padStart(2,'0')}</option>)}
+                </select>
+                <span style={{fontSize:11,color:'var(--text-light)'}}>סלוט</span>
+                <select value={course.slotIdx} onChange={e=>upd(course.id,'slotIdx',Number(e.target.value))}
+                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {SLOTS.map((s,i)=><option key={i} value={i}>{s.label} (כיתה {s.classStart.slice(0,2)}–{s.classEnd.slice(0,2)})</option>)}
+                </select>
+                <span style={{fontSize:11,color:'var(--text-light)'}}>כיתה</span>
+                <select value={course.classroom} onChange={e=>upd(course.id,'classroom',e.target.value)}
+                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {CLASSROOMS.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              {course.startDate&&d1info&&<DayBlock dayNum={course.startDate} dayName={d1info.dayName} slot={slot} label="יום 1"/>}
+              {day2&&<DayBlock dayNum={day2.date} dayName={day2.dayName} slot={slot} label="יום 2" isD2Ready={boatOk1!==false}/>}
+
+              <div style={{borderTop:'0.5px solid var(--border)',paddingTop:6,marginTop:2}}>
+                {both.length>0?(
+                  <>
+                    <div style={{fontSize:10,color:'var(--text-light)',marginBottom:4}}>מדריך זמין שני הימים + מוסמך:</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:3}}>
+                      {both.map(i=><span key={i.id} style={{fontSize:10,padding:'1px 5px',borderRadius:3,background:'#dcfce7',color:'#166534'}}>{i.name.split(' ')[0]}</span>)}
+                    </div>
+                  </>
+                ):(
+                  <>
+                    <div style={{fontSize:10,color:'#dc2626',fontWeight:500,marginBottom:3}}>אין מדריך זמין בשני הימים</div>
+                    {(onlyD1.length>0||onlyD2.length>0)&&(
+                      <div style={{fontSize:10,color:'var(--text-light)'}}>
+                        {onlyD1.length>0&&<span>יום 1 בלבד: {onlyD1.map(i=>i.name.split(' ')[0]).join(', ')}. </span>}
+                        {onlyD2.length>0&&<span>יום 2 בלבד: {onlyD2.map(i=>i.name.split(' ')[0]).join(', ')}.</span>}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <button onClick={()=>generateAssignments(course)}
+                disabled={!canProceed||both.length===0}
+                style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:canProceed&&both.length>0?'pointer':'default',width:'100%',marginTop:8,opacity:canProceed&&both.length>0?1:0.35}}>
+                צור שיבוצים
+              </button>
+            </div>
+          );
+        })}
+
+        <div style={{flex:'0 0 auto',display:'flex',alignItems:'flex-start',paddingTop:4}}>
+          <button onClick={addCourse}
+            style={{padding:'8px 14px',borderRadius:8,border:'1px dashed var(--border)',background:'transparent',color:'var(--text-light)',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>
+            + קורס נוסף
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KATMANDU WIZARD
+// ═══════════════════════════════════════════════════════════════════════════
+function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast}){
+  const [courses,setCourses]=React.useState([{id:1,dow:3,hour:9,startStage:1}]);
+  const nextId=React.useRef(2);
+
+  const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמנדו')||null,[activities]);
+  const katBoat=React.useMemo(()=>boats.find(b=>b.name==='קטמנדו')||null,[boats]);
+
+  const [y,mNum]=month.split('-').map(Number);
+
+  // All dates in the month that fall on a given day-of-week (0=Sun)
+  const getDatesForDow=(dow)=>{
+    const dates=[];
+    const d=new Date(y,mNum-1,1);
+    while(d.getMonth()===mNum-1){
+      if(d.getDay()===dow) dates.push(d.getDate());
+      d.setDate(d.getDate()+1);
+    }
+    return dates;
+  };
+
+  // Check instructor available for 3 consecutive hours starting at `hour` on day `dayNum`
+  const isAvail3h=(inst,dayNum,hour)=>{
+    const av=availability[`${inst.id}_${month}`]||{};
+    for(let h=hour;h<hour+3;h++){
+      const v=av[`${dayNum}_${h.toString().padStart(2,'0')}:00`];
+      if(v!==true) return false;
+    }
+    return true;
+  };
+
+  // Check qualified: has 'קטמנדו' in skills
+  const isQual=(inst)=>(inst.skills||[]).includes('קטמנדו');
+
+  const DOW_NAMES=['ראשון','שני','שלישי','רביעי','חמישי'];
+  const STAGE_COLORS=['','#EEEDFE','#E1F5EE','#FAECE7','#FAEEDA','#E6F1FB'];
+  const STAGE_TEXT=['','#3C3489','#085041','#712B13','#633806','#0C447C'];
+
+  const addCourse=()=>{
+    const id=nextId.current++;
+    setCourses(prev=>[...prev,{id,dow:1,hour:9,startStage:1}]);
+  };
+  const removeCourse=(id)=>setCourses(prev=>prev.filter(c=>c.id!==id));
+  const upd=(id,field,val)=>setCourses(prev=>prev.map(c=>c.id===id?{...c,[field]:val}:c));
+
+  const generateAssignments=(course)=>{
+    if(!katAct){showToast('לא נמצאה פעילות קטמנדו — בדוק בלשונית פעילויות');return;}
+    if(!katBoat){showToast('לא נמצאה סירת קטמנדו — בדוק בלשונית ספינות');return;}
+    const dates=getDatesForDow(course.dow).slice(0,6-course.startStage);
+    const key=`schedule_${month}`;
+    const existing=(assignments[key]||[]).filter(a=>a._katCourseId!==course.id);
+    const now=Date.now();
+    const newItems=dates.map((d,i)=>{
+      const stage=Math.min(course.startStage+i,5);
+      const avInsts=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,course.hour));
+      const inst=avInsts[0]||null;
+      return{
+        id:`kat_${course.id}_${d}_${now+i}`,
+        _katCourseId:course.id,
+        activityId:katAct.id,
+        activityName:`קטמנדו ${stage}`,
+        boatId:katBoat.id,
+        boatName:katBoat.name,
+        boatType:katBoat.type||'קטמנדו',
+        date:d,
+        dayOfWeek:course.dow,
+        startHour:`${course.hour.toString().padStart(2,'0')}:00`,
+        endHour:`${(course.hour+3).toString().padStart(2,'0')}:00`,
+        instructorId:inst?.id||null,
+        instructorName:inst?.name||null,
+        extraInstructors:[],
+        instructorsNeeded:1,
+        missingInstructors:inst?0:1,
+        status:inst?'assigned':'no_instructor',
+        source:'katmandu_wizard',
+      };
+    });
+    setAssignments(prev=>({...prev,[key]:[...existing,...newItems]}));
+    showToast(`✓ נוצרו ${newItems.length} שיבוצים לקורס ${course.id}`);
+  };
+
+  return(
+    <div style={{direction:'rtl',padding:'16px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+        <h2 style={{fontSize:16,fontWeight:600,margin:0}}>אשף קטמנדו — {month}</h2>
+        {(!katAct||!katBoat)&&<span style={{fontSize:12,color:'var(--danger)',background:'var(--danger-light,#fee2e2)',padding:'3px 10px',borderRadius:8}}>
+          ⚠ חסר: {[!katAct&&'פעילות',!katBoat&&'סירה'].filter(Boolean).join(' + ')}
+        </span>}
+      </div>
+      <div style={{fontSize:12,color:'var(--text-secondary)',marginBottom:12}}>
+        לכל קורס בחר יום ושעה. מוצגים רק מדריכים זמינים + מוסמכים לקטמנדו.
+      </div>
+
+      <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'flex-start'}}>
+        {courses.map((course,ci)=>{
+          const dates=getDatesForDow(course.dow).slice(0,6-course.startStage);
+          const openDate=dates[0]?`${dates[0]}/${mNum.toString().padStart(2,'0')}`:'';
+          return(
+            <div key={course.id} style={{background:'var(--bg-card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',minWidth:230,flex:'1 1 230px',maxWidth:320}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                <span style={{fontWeight:600,fontSize:13}}>קורס {ci+1}</span>
+                <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                  <span style={{fontSize:10,color:'var(--text-secondary)',background:'var(--bg-secondary,#f3f4f6)',padding:'1px 6px',borderRadius:8}}>{dates.length} מפגשים</span>
+                  {courses.length>1&&<button onClick={()=>removeCourse(course.id)} title="הסר" style={{background:'none',border:'none',color:'var(--danger,#dc2626)',cursor:'pointer',fontSize:16,lineHeight:1,padding:0}}>✕</button>}
+                </div>
+              </div>
+
+              <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 6px',alignItems:'center',marginBottom:10,fontSize:12}}>
+                <span style={{color:'var(--text-secondary)'}}>יום</span>
+                <select value={course.dow} onChange={e=>upd(course.id,'dow',Number(e.target.value))}
+                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {[0,1,2,3,4].map(d=><option key={d} value={d}>{DOW_NAMES[d]}</option>)}
+                </select>
+                <span style={{color:'var(--text-secondary)'}}>שעה</span>
+                <select value={course.hour} onChange={e=>upd(course.id,'hour',Number(e.target.value))}
+                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {[7,8,9,10,11,12,13,14,15,16,17].map(h=><option key={h} value={h}>{h}:00–{h+3}:00</option>)}
+                </select>
+                <span style={{color:'var(--text-secondary)'}}>שלב</span>
+                <select value={course.startStage} onChange={e=>upd(course.id,'startStage',Number(e.target.value))}
+                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {[1,2,3,4,5].map(s=><option key={s} value={s}>קטמנדו {s}</option>)}
+                </select>
+              </div>
+
+              {dates.length===0?(
+                <div style={{fontSize:11,color:'var(--text-secondary)',fontStyle:'italic'}}>אין ימים בחודש זה</div>
+              ):(
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                  <thead>
+                    <tr>
+                      <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>תאריך</th>
+                      <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>שלב</th>
+                      <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>זמינים</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dates.map((d,i)=>{
+                      const stage=Math.min(course.startStage+i,5);
+                      const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,course.hour));
+                      const isLast=i===dates.length-1;
+                      return(
+                        <tr key={d} style={{borderBottom:isLast?'none':'0.5px solid var(--border)'}}>
+                          <td style={{padding:'4px',fontWeight:500,whiteSpace:'nowrap',fontSize:11}}>
+                            {d}/{mNum.toString().padStart(2,'0')}
+                          </td>
+                          <td style={{padding:'4px',whiteSpace:'nowrap'}}>
+                            <span style={{fontSize:10,padding:'1px 6px',borderRadius:8,background:STAGE_COLORS[stage],color:STAGE_TEXT[stage]}}>
+                              {stage}
+                            </span>
+                          </td>
+                          <td style={{padding:'4px'}}>
+                            {availAndQual.length===0?(
+                              <span style={{fontSize:10,color:'#dc2626',fontWeight:500}}>⚠ אין</span>
+                            ):(
+                              <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
+                                {availAndQual.map(inst=>(
+                                  <span key={inst.id} style={{fontSize:10,padding:'1px 5px',borderRadius:3,background:'#dcfce7',color:'#166534'}}>
+                                    {inst.name.split(' ')[0]}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+
+              <div style={{marginTop:10,display:'flex',justifyContent:'flex-end'}}>
+                <button onClick={()=>generateAssignments(course)}
+                  style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:'pointer'}}>
+                  צור שיבוצים
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{minWidth:120,flex:'0 0 auto',display:'flex',alignItems:'flex-start',paddingTop:4}}>
+          <button onClick={addCourse}
+            style={{padding:'8px 14px',borderRadius:8,border:'1px dashed var(--border)',background:'transparent',color:'var(--text-secondary)',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>
+            + קורס נוסף
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
 </script>
 </body>
 </html>
