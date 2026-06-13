@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.18';
+const SCHEDULER_VERSION = 'v6.21';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -401,6 +401,7 @@ function App(){
   const [tab,setTab]=useState('instructors');
   const [weeklySelections,setWeeklySelections]=useState({});
   const [assignmentViewDate,setAssignmentViewDate]=useState(null);
+  const [katCourses,setKatCourses]=useState([{id:Date.now(),startDate:null,hour:9,startStage:1,assigned:false,instSel:{}}]);
   const [instructors,setInstructors]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('sch_instructors'))||[];}catch{return [];}
   });
@@ -637,7 +638,7 @@ function App(){
         {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month}/>}
         {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={weeklySelections} initDate={assignmentViewDate} setTab={setTab}/>}
         {tab==='katamaran'&&<KatamaranWizard instructors={instructors} activities={activities} boats={boats} crmEvents={crmEvents} roomBoatMap={roomBoatMap} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
-        {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
+        {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} katCourses={katCourses} setKatCourses={setKatCourses}/>}
         {tab==='weeklyplan'&&<WeeklyPlanTab instructors={instructors} availability={availability} month={month} activities={activities} assignments={assignments} setTab={setTab} weeklySelections={weeklySelections} setWeeklySelections={setWeeklySelections} setAssignmentViewDate={setAssignmentViewDate}/>}
         {tab==='inbox'&&<InboxTab inbox={inbox} setInbox={setInbox} instructors={instructors} setInstructors={setInstructors} availability={availability} setAvailability={setAvailability} setAssignments={setAssignments} setMonth={setMonth} currentMonth={month} showToast={showToast}/>}
         </ErrorBoundary>
@@ -7021,27 +7022,50 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     return instructors.filter(i=>allIds.includes(i.id)).sort((a,b)=>{const o={high:0,medium:1,low:2};return(o[a.priority]??1)-(o[b.priority]??1);});
   },[instructors,availability,weeklySelections,month,selDate,selDateObj]);
 
-  // ── Weekly counters by boat type ────────────────────────────────────────────
-  // ── Monthly counters per boat type + activity ──────────────────────────────
+  // ── Weekly counters per boat type ──────────────────────────────────────────
+  // Formula: weeklyTarget = (monthly - donePrevWeeks) / totalWeekdays * weekdaysThisWeek
+  // Carry-over: undone quota from past weeks raises this week's target automatically.
   const BS_TYPES=new Set(['בי"ס']);
   const TYPE_ORDER=['קטמרן','מנועית','קטמנדו','מונוהול','בי"ס'];
-  const monthlyCounters=useMemo(()=>{
+  const weeklyCounters=useMemo(()=>{
+    const [yr,moN]=month.split('-').map(Number);
+    const dim=new Date(yr,moN,0).getDate();
+    // Build weeks (Sun-start)
+    const weeks=[];let wk=[];
+    for(let i=1;i<=dim;i++){const dow=new Date(yr,moN-1,i).getDay();if(dow===0&&wk.length>0){weeks.push(wk);wk=[];}wk.push(i);}
+    if(wk.length)weeks.push(wk);
+    const curWeekIdx=weeks.findIndex(w=>w.includes(selDate));
+    const curWeek=weeks[Math.max(0,curWeekIdx)];
+    const weekDateSet=new Set(curWeek);
+    const prevDateSet=new Set(weeks.slice(0,Math.max(0,curWeekIdx)).flat());
+    // ימי חול = ראשון-חמישי (0-4)
+    const isWeekday=d=>new Date(yr,moN-1,d).getDay()<=4;
+    const totalWeekdays=weeks.flat().filter(isWeekday).length;
+    const weekdaysThisWeek=curWeek.filter(isWeekday).length;
     const schedArr=Array.isArray(rawSched)?rawSched:[];
-    const actDone={};
-    const typeDoneExtra={};
-    const nm=s=>(s||'').replace(/["״]/g,'');
+    const actDonePrev={},actDoneThis={},typeDoneExtraThis={};
+    const nm=s=>(s||'').replace(/["\u05f4]/g,'');
     schedArr.forEach(s=>{
-      if(s.activityId){actDone[s.activityId]=(actDone[s.activityId]||0)+1;}
-      else if(s.boatType){
-        // count by normalized type (handles "בי"ס"/"בי״ס" etc.)
-        const t=TYPE_ORDER.find(tt=>nm(tt)===nm(s.boatType))||s.boatType;
-        typeDoneExtra[t]=(typeDoneExtra[t]||0)+1;
+      if(prevDateSet.has(s.date)){
+        if(s.activityId)actDonePrev[s.activityId]=(actDonePrev[s.activityId]||0)+1;
+      }
+      if(weekDateSet.has(s.date)){
+        if(s.activityId)actDoneThis[s.activityId]=(actDoneThis[s.activityId]||0)+1;
+        else if(s.boatType){
+          const t=TYPE_ORDER.find(tt=>nm(tt)===nm(s.boatType))||s.boatType;
+          typeDoneExtraThis[t]=(typeDoneExtraThis[t]||0)+1;
+        }
       }
     });
     const byType={};
     activities.forEach(a=>{
-      const total=Number(a.totalPerMonth)||0;
-      if(!total)return;
+      const monthly=Number(a.totalPerMonth)||0;
+      if(!monthly)return;
+      const donePrev=actDonePrev[a.id]||0;
+      const doneThis=actDoneThis[a.id]||0;
+      const remInMonth=Math.max(0,monthly-donePrev);
+      const weeklyTarget=totalWeekdays>0?Math.round(remInMonth/totalWeekdays*weekdaysThisWeek):0;
+      const remaining=Math.max(0,weeklyTarget-doneThis);
       const types=a.allowedBoatTypes||[];
       const ids=a.allowedBoatIds||[];
       const typeSet=new Set(types);
@@ -7049,21 +7073,18 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       if(!typeSet.size)return;
       typeSet.forEach(t=>{
         const nk=TYPE_ORDER.find(tt=>nm(tt)===nm(t))||t;
-        if(!byType[nk])byType[nk]={totalAll:0,doneAll:0,acts:[],extraDone:0};
-        const done=actDone[a.id]||0;
-        const remaining=Math.max(0,total-done);
-        byType[nk].totalAll+=total;
-        byType[nk].doneAll+=Math.min(done,total);
-        byType[nk].acts.push({id:a.id,name:a.name,total,done,remaining});
+        if(!byType[nk])byType[nk]={weeklyTotal:0,doneAll:0,acts:[],extraDone:0};
+        byType[nk].weeklyTotal+=weeklyTarget;
+        byType[nk].doneAll+=Math.min(doneThis,weeklyTarget);
+        byType[nk].acts.push({id:a.id,name:a.name,total:weeklyTarget,done:doneThis,remaining});
       });
     });
-    // Add unattributed (no activityId) items counted by type
-    Object.entries(typeDoneExtra).forEach(([t,extra])=>{
-      const key=TYPE_ORDER.find(tt=>nm(tt)===nm(t))||t;
+    Object.entries(typeDoneExtraThis).forEach(([t,extra])=>{
+      const key=Object.keys(byType).find(k=>nm(k)===nm(t))||t;
       if(byType[key]){byType[key].doneAll+=extra;byType[key].extraDone=(byType[key].extraDone||0)+extra;}
     });
     return byType;
-  },[activities,boats,rawSched]);
+  },[activities,boats,rawSched,month,selDate]);
   // ─────────────────────────────────────────────────────────────────────────
 
   const prevDay=()=>setSelectedDateNum(Math.max(1,selDate-1));
@@ -7162,17 +7183,17 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
             <button className="btn btn-outline btn-sm" onClick={nextDay} disabled={selDate===lastDay}>יום הבא ▶</button>
           </div>
         </div>
-        {Object.keys(monthlyCounters).length>0&&(
+        {Object.keys(weeklyCounters).length>0&&(
           <div style={{display:'flex',gap:10,padding:'8px 0 4px',alignItems:'stretch',width:'100%',boxSizing:'border-box'}}>
-            {[...TYPE_ORDER,...Object.keys(monthlyCounters).filter(t=>!TYPE_ORDER.includes(t))].filter(t=>monthlyCounters[t]).map(type=>{
-              const{totalAll,doneAll,acts}=monthlyCounters[type];
-              const remaining=Math.max(0,totalAll-doneAll);
+            {[...TYPE_ORDER,...Object.keys(weeklyCounters).filter(t=>!TYPE_ORDER.includes(t))].filter(t=>weeklyCounters[t]).map(type=>{
+              const{weeklyTotal,doneAll,acts}=weeklyCounters[type];
+              const remaining=Math.max(0,weeklyTotal-doneAll);
               const isBS=type.includes('בי')&&type.includes('ס');
               return(
                 <div key={type} style={{background:'var(--card)',border:'0.5px solid #e2e8f0',borderRadius:8,padding:'10px 12px',flex:isBS?'4 1 0':'1 1 0',minWidth:0,overflow:'hidden'}}>
                   <div style={{fontSize:11,fontWeight:700,color:'var(--text-light)'}}>{type}</div>
                   <div style={{fontSize:26,fontWeight:700,color:remaining===0?'#16a34a':'var(--text)',lineHeight:1.1}}>{remaining}</div>
-                  <div style={{fontSize:11,color:'var(--text-light)',marginBottom:6}}>נותר מ-{totalAll}{(monthlyCounters[type]?.extraDone||0)>0?` (כולל ${monthlyCounters[type].extraDone} ללא שם)`:''}</div>
+                  <div style={{fontSize:11,color:'var(--text-light)',marginBottom:6}}>נותר מ-{weeklyTotal}{(weeklyCounters[type]?.extraDone||0)>0?` (כולל ${weeklyCounters[type].extraDone} ללא שם)`:''}</div>
                   <div style={{borderTop:'0.5px solid #e2e8f0',paddingTop:5,display:isBS?'grid':'flex',gridTemplateColumns:isBS?'1fr 1fr':undefined,gap:'1px 12px',flexDirection:isBS?undefined:'column'}}>
                     {acts.map(a=>(
                       <div key={a.id} style={{display:'flex',justifyContent:'space-between',gap:4,fontSize:12,padding:'1px 0'}}>
@@ -7524,9 +7545,10 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
 // ═══════════════════════════════════════════════════════════════════════════
 // KATMANDU WIZARD
 // ═══════════════════════════════════════════════════════════════════════════
-function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast}){
-  const [courses,setCourses]=React.useState([{id:1,startDate:null,hour:9,startStage:1}]);
-  const nextId=React.useRef(2);
+function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast,katCourses,setKatCourses}){
+  const courses=katCourses;
+  const setCourses=setKatCourses;
+  const nextId=React.useRef(Math.max(...katCourses.map(c=>c.id))+1);
 
   const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמנדו')||null,[activities]);
   const katBoat=React.useMemo(()=>boats.find(b=>b.name==='קטמנדו')||null,[boats]);
@@ -7572,12 +7594,12 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
   const STAGE_TEXT=['','#3C3489','#085041','#712B13','#633806','#0C447C'];
 
   const addCourse=()=>{
-    const id=nextId.current++;
-    setCourses(prev=>[...prev,{id,startDate:null,hour:9,startStage:1}]);
+    const id=Date.now();
+    setCourses(prev=>[...prev,{id,startDate:null,hour:9,startStage:1,assigned:false,instSel:{}}]);
   };
   const removeCourse=(id)=>setCourses(prev=>prev.filter(c=>c.id!==id));
   const upd=(id,field,val)=>setCourses(prev=>prev.map(c=>c.id===id?{...c,[field]:val}:c));
-  const updInstSel=(cid,date,instId)=>setCourses(prev=>prev.map(c=>c.id===cid?{...c,instSel:{...(c.instSel||{}),[date]:instId}}:c));
+  const updInstSel=(cid,date,instId)=>setCourses(prev=>prev.map(c=>c.id===cid?{...c,assigned:false,instSel:{...(c.instSel||{}),[date]:instId}}:c));
 
   const generateAssignments=(course)=>{
     if(!katAct){showToast('לא נמצאה פעילות קטמנדו — בדוק בלשונית פעילויות');return;}
@@ -7615,6 +7637,7 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
       };
     });
     setAssignments(prev=>({...prev,[key]:[...existing,...newItems]}));
+    setCourses(prev=>prev.map(c=>c.id===course.id?{...c,assigned:true}:c));
     showToast(`✓ נוצרו ${newItems.length} שיבוצים לקורס ${course.id}`);
   };
 
@@ -7637,7 +7660,7 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
           return(
             <div key={course.id} style={{background:'var(--bg-card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',minWidth:230,flex:'1 1 230px',maxWidth:320}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                <span style={{fontWeight:600,fontSize:13}}>קורס {ci+1}</span>
+                <span style={{fontWeight:600,fontSize:13}}>קורס {ci+1}{course.assigned&&<span style={{fontSize:10,marginRight:5,color:'#16a34a',background:'#dcfce7',padding:'1px 6px',borderRadius:6}}>✓ שובץ</span>}</span>
                 <div style={{display:'flex',gap:6,alignItems:'center'}}>
                   <span style={{fontSize:10,color:'var(--text-secondary)',background:'var(--bg-secondary,#f3f4f6)',padding:'1px 6px',borderRadius:8}}>{dates.length} מפגשים</span>
                   {courses.length>1&&<button onClick={()=>removeCourse(course.id)} title="הסר" style={{background:'none',border:'none',color:'var(--danger,#dc2626)',cursor:'pointer',fontSize:16,lineHeight:1,padding:0}}>✕</button>}
@@ -7709,8 +7732,8 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
 
               <div style={{marginTop:10,display:'flex',justifyContent:'flex-end'}}>
                 <button onClick={()=>generateAssignments(course)}
-                  style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:'pointer'}}>
-                  צור שיבוצים
+                  style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:course.assigned?'#16a34a':'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:'pointer'}}>
+                  {course.assigned?'עדכן שיבוץ':'צור שיבוצים'}
                 </button>
               </div>
             </div>
