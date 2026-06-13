@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.12';
+const SCHEDULER_VERSION = 'v6.18';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -6835,7 +6835,7 @@ const TYPE_DUR_MAP={'מנועית':2,'בי"ס':2,'בי״ס':2,'קטמנדו':3,'
 const normType=s=>(s||'').replace(/["״]/g,'');
 const getDurByType=t=>{'use strict';const n=normType(t);return({'מנועית':2,'ביס':2,'קטמנדו':3,'מונוהול':3,'קטמרן':3})[n]||TYPE_DUR_MAP[t]||null;};
 
-function ManualEventDialog({dlg,dlgActId,setDlgActId,dlgStart,setDlgStart,dlgInstId,setDlgInstId,activities,displayInsts,instructors,onSave,onDelete,onClose}){
+function ManualEventDialog({dlg,dlgActId,setDlgActId,dlgStart,setDlgStart,dlgInstId,setDlgInstId,dlgBoatType,setDlgBoatType,activities,displayInsts,instructors,onSave,onDelete,onClose}){
   if(!dlg)return null;
   const boatTypes=dlg.boatTypes||[];
 
@@ -6857,19 +6857,17 @@ function ManualEventDialog({dlg,dlgActId,setDlgActId,dlgStart,setDlgStart,dlgIns
 
   // Duration: from boat type (via selected activity's type intersection), not activity field
   const durHours=React.useMemo(()=>{
-    // Duration comes from the selected activity's type, matched against this boat's allowed types
+    // Primary: use selected boat type (dlgBoatType)
+    if(dlgBoatType){const d=getDurByType(dlgBoatType);if(d)return d;}
     if(act){
       const actTypes=act.allowedBoatTypes||[];
-      // fuzzy intersection: normalize quote chars for comparison
       const inter=actTypes.filter(t=>boatTypes.some(bt=>normType(t)===normType(bt)));
       if(inter.length){const d=getDurByType(inter[0]);if(d)return d;}
-      // fallback: use boat's primary type duration
       for(const bt of boatTypes){const d=getDurByType(bt);if(d)return d;}
     }
-    // No activity selected: use boat's primary type
     for(const bt of boatTypes){const d=getDurByType(bt);if(d)return d;}
     return 3;
-  },[act,boatTypes]);
+  },[act,boatTypes,dlgBoatType]);
 
   const toM=t=>{const[h,m]=(t||'00:00').split(':').map(Number);return h*60+(m||0);};
   const frM=m=>`${Math.floor(m/60).toString().padStart(2,'0')}:${(m%60).toString().padStart(2,'0')}`;
@@ -6877,7 +6875,7 @@ function ManualEventDialog({dlg,dlgActId,setDlgActId,dlgStart,setDlgStart,dlgIns
   const inst=instructors.find(i=>i.id===dlgInstId);
 
   const save=()=>{
-    onSave({id:dlg.event?.id||null,boatId:dlg.boatId,boatName:dlg.boatName,date:dlg.selDate,startHour:dlgStart,endHour:endStr,activityId:act?.id||null,activityName:act?.name||'',instructorId:dlgInstId||null,instructorName:inst?.name||'',source:'manual'});
+    onSave({id:dlg.event?.id||null,boatId:dlg.boatId,boatName:dlg.boatName,date:dlg.selDate,startHour:dlgStart,endHour:endStr,activityId:act?.id||null,activityName:act?.name||'',boatType:dlgBoatType||boatTypes[0]||'',instructorId:dlgInstId||null,instructorName:inst?.name||'',source:'manual'});
   };
 
   // Label: show boat type(s)
@@ -6887,12 +6885,18 @@ function ManualEventDialog({dlg,dlgActId,setDlgActId,dlgStart,setDlgStart,dlgIns
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
       <div style={{background:'var(--card)',borderRadius:10,padding:20,minWidth:290,maxWidth:350,direction:'rtl',boxShadow:'0 8px 32px rgba(0,0,0,.2)'}} onClick={e=>e.stopPropagation()}>
-        {typeLabel&&<div style={{fontSize:11,color:'var(--text-light)',marginBottom:8,display:'flex',gap:6,alignItems:'center'}}>
-          <span style={{background:'#ede9fe',color:'#5b21b6',borderRadius:4,padding:'2px 7px',fontWeight:700}}>{typeLabel}</span>
-          <span style={{background:'#f0fdf4',color:'#16a34a',borderRadius:4,padding:'2px 7px',fontWeight:600}}>{durLabel}</span>
-        </div>}
+        <div className="form-group" style={{marginBottom:10}}>
+          <label style={{fontWeight:700,fontSize:13,marginBottom:4,display:'block'}}>סוג פעילות</label>
+          <div style={{display:'flex',gap:6,alignItems:'center'}}>
+            <select value={dlgBoatType} onChange={e=>setDlgBoatType(e.target.value)} style={{flex:1,fontSize:13,padding:'6px 8px'}}>
+              <option value="">— לא נקבע —</option>
+              {['קטמרן','מנועית','קטמנדו','מונוהול','בי"ס'].map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+            {dlgBoatType&&<span style={{background:'#f0fdf4',color:'#16a34a',borderRadius:4,padding:'2px 7px',fontSize:11,fontWeight:600,whiteSpace:'nowrap'}}>{durHours} שע׳</span>}
+          </div>
+        </div>
         <div className="form-group" style={{marginBottom:12}}>
-          <label style={{fontWeight:700,fontSize:14,marginBottom:5,display:'block'}}>סוג פעילות</label>
+          <label style={{fontSize:13,color:'var(--text-light)',marginBottom:4,display:'block'}}>שם פעילות (אופציונלי)</label>
           <select value={dlgActId} onChange={e=>setDlgActId(e.target.value)} style={{width:'100%',fontSize:13,padding:'6px 8px'}}>
             <option value="">— לא נקבע —</option>
             {actList.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
@@ -7006,12 +7010,13 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     const isWeekend=dow===5||dow===6;
     const selIds=weeklySelections?(weeklySelections[selDate]||[]):[];
     const workIds=(availability?instructors.filter(inst=>HOURS.some(h=>(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`]==='work')).map(i=>i.id):[]);
+    const assignedIds=(assignments?.[`schedule_${month}`]||[]).filter(a=>a.date===selDate&&a.instructorId).map(a=>a.instructorId);
     let allIds;
     if(isWeekend){
       const availIds=availability?instructors.filter(inst=>HOURS.some(h=>{const v=(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`];return v===true||v==='work';})).map(i=>i.id):[];
-      allIds=[...new Set([...selIds,...workIds,...availIds])];
+      allIds=[...new Set([...selIds,...workIds,...assignedIds,...availIds])];
     }else{
-      allIds=[...new Set([...selIds,...workIds])];
+      allIds=[...new Set([...selIds,...workIds,...assignedIds])];
     }
     return instructors.filter(i=>allIds.includes(i.id)).sort((a,b)=>{const o={high:0,medium:1,low:2};return(o[a.priority]??1)-(o[b.priority]??1);});
   },[instructors,availability,weeklySelections,month,selDate,selDateObj]);
@@ -7023,7 +7028,16 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const monthlyCounters=useMemo(()=>{
     const schedArr=Array.isArray(rawSched)?rawSched:[];
     const actDone={};
-    schedArr.forEach(s=>{if(s.activityId)actDone[s.activityId]=(actDone[s.activityId]||0)+1;});
+    const typeDoneExtra={};
+    const nm=s=>(s||'').replace(/["״]/g,'');
+    schedArr.forEach(s=>{
+      if(s.activityId){actDone[s.activityId]=(actDone[s.activityId]||0)+1;}
+      else if(s.boatType){
+        // count by normalized type (handles "בי"ס"/"בי״ס" etc.)
+        const t=TYPE_ORDER.find(tt=>nm(tt)===nm(s.boatType))||s.boatType;
+        typeDoneExtra[t]=(typeDoneExtra[t]||0)+1;
+      }
+    });
     const byType={};
     activities.forEach(a=>{
       const total=Number(a.totalPerMonth)||0;
@@ -7034,13 +7048,19 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       if(ids.length&&!types.length){ids.forEach(id=>{const t=boats.find(b=>b.id===id)?.type;if(t)typeSet.add(t);});}
       if(!typeSet.size)return;
       typeSet.forEach(t=>{
-        if(!byType[t])byType[t]={totalAll:0,doneAll:0,acts:[]};
+        const nk=TYPE_ORDER.find(tt=>nm(tt)===nm(t))||t;
+        if(!byType[nk])byType[nk]={totalAll:0,doneAll:0,acts:[],extraDone:0};
         const done=actDone[a.id]||0;
         const remaining=Math.max(0,total-done);
-        byType[t].totalAll+=total;
-        byType[t].doneAll+=Math.min(done,total);
-        byType[t].acts.push({id:a.id,name:a.name,total,done,remaining});
+        byType[nk].totalAll+=total;
+        byType[nk].doneAll+=Math.min(done,total);
+        byType[nk].acts.push({id:a.id,name:a.name,total,done,remaining});
       });
+    });
+    // Add unattributed (no activityId) items counted by type
+    Object.entries(typeDoneExtra).forEach(([t,extra])=>{
+      const key=TYPE_ORDER.find(tt=>nm(tt)===nm(t))||t;
+      if(byType[key]){byType[key].doneAll+=extra;byType[key].extraDone=(byType[key].extraDone||0)+extra;}
     });
     return byType;
   },[activities,boats,rawSched]);
@@ -7053,6 +7073,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const [dlgActId,setDlgActId]=useState('');
   const [dlgStart,setDlgStart]=useState('09:00');
   const [dlgInstId,setDlgInstId]=useState('');
+  const [dlgBoatType,setDlgBoatType]=useState('');
   const [dragEvId,setDragEvId]=useState(null);
   const schedKey=`schedule_${month}`;
 
@@ -7076,6 +7097,11 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     setDlgActId('');
     setDlgStart(`${h.toString().padStart(2,'0')}:00`);
     setDlgInstId('');
+    const _typeOrder=['קטמרן','מנועית','קטמנדו','מונוהול','בי"ס'];
+    const _nm=s=>(s||'').replace(/["״]/g,'');
+    const _mapType=t=>_typeOrder.find(tt=>_nm(tt)===_nm(t))||t;
+    const initType=boatTypes.length>=1?_mapType(boatTypes[0]):'';
+    setDlgBoatType(initType);
     setDlg({mode:'add',boatId,boatName,boatTypes,selDate,event:null});
   };
   const openEdit=(ev)=>{
@@ -7087,6 +7113,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     setDlgActId(ev.activityId||'');
     setDlgStart(ev.startHour||'09:00');
     setDlgInstId(ev.instructorId||'');
+    {const _to=['קטמרן','מנועית','קטמנדו','מונוהול','בי"ס'];const _n=s=>(s||'').replace(/["״]/g,'');const _m=t=>_to.find(tt=>_n(tt)===_n(t))||t;setDlgBoatType(_m(ev.boatType||boatTypes[0]||''));}
     setDlg({mode:'edit',boatId:ev.boatId,boatName:ev.boatName,boatTypes,selDate,event:ev});
   };
   const saveManualEvent=(data)=>{
@@ -7121,7 +7148,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
 
   return(
     <div>
-      <ManualEventDialog dlg={dlg} dlgActId={dlgActId} setDlgActId={setDlgActId} dlgStart={dlgStart} setDlgStart={setDlgStart} dlgInstId={dlgInstId} setDlgInstId={setDlgInstId} activities={activities||[]} displayInsts={displayInsts} instructors={instructors} onSave={saveManualEvent} onDelete={deleteManualEvent} onClose={()=>setDlg(null)}/>
+      <ManualEventDialog dlg={dlg} dlgActId={dlgActId} setDlgActId={setDlgActId} dlgStart={dlgStart} setDlgStart={setDlgStart} dlgInstId={dlgInstId} setDlgInstId={setDlgInstId} dlgBoatType={dlgBoatType} setDlgBoatType={setDlgBoatType} activities={activities||[]} displayInsts={displayInsts} instructors={instructors} onSave={saveManualEvent} onDelete={deleteManualEvent} onClose={()=>setDlg(null)}/>
       <div className="card">
         <div className="card-header">
           <h2>✅ שיבוץ סופי
@@ -7145,7 +7172,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                 <div key={type} style={{background:'var(--card)',border:'0.5px solid #e2e8f0',borderRadius:8,padding:'10px 12px',flex:isBS?'4 1 0':'1 1 0',minWidth:0,overflow:'hidden'}}>
                   <div style={{fontSize:11,fontWeight:700,color:'var(--text-light)'}}>{type}</div>
                   <div style={{fontSize:26,fontWeight:700,color:remaining===0?'#16a34a':'var(--text)',lineHeight:1.1}}>{remaining}</div>
-                  <div style={{fontSize:11,color:'var(--text-light)',marginBottom:6}}>נותר מ-{totalAll}</div>
+                  <div style={{fontSize:11,color:'var(--text-light)',marginBottom:6}}>נותר מ-{totalAll}{(monthlyCounters[type]?.extraDone||0)>0?` (כולל ${monthlyCounters[type].extraDone} ללא שם)`:''}</div>
                   <div style={{borderTop:'0.5px solid #e2e8f0',paddingTop:5,display:isBS?'grid':'flex',gridTemplateColumns:isBS?'1fr 1fr':undefined,gap:'1px 12px',flexDirection:isBS?undefined:'column'}}>
                     {acts.map(a=>(
                       <div key={a.id} style={{display:'flex',justifyContent:'space-between',gap:4,fontSize:12,padding:'1px 0'}}>
@@ -7177,10 +7204,10 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                   const hrs=HOURS.filter(h=>avail[`${selDate}_${h}`]===true||avail[`${selDate}_${h}`]==='work');
                   const win=hrs.length?`${parseInt(hrs[0])}:00–${parseInt(hrs[hrs.length-1])+1}:00`:'';
                   const c=PRIORITY_CHIP_COLORS[inst.priority]||{bg:'#F1EFE8',color:'#3C3489',border:'#888780'};
-                  const isWork=(availability&&HOURS.some(h=>(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`]==='work'))&&!(weeklySelections?.[selDate]||[]).includes(inst.id);
+                  const isAutoAdded=((assignments?.[`schedule_${month}`]||[]).some(a=>a.date===selDate&&a.instructorId===inst.id)||(availability&&HOURS.some(h=>(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`]==='work')))&&!(weeklySelections?.[selDate]||[]).includes(inst.id);
                   return(
                     <th key={inst.id} style={{minWidth:72,fontSize:11,padding:'5px 4px',textAlign:'center',background:c.bg,borderBottom:`3px solid ${c.border}`,color:c.color}}>
-                      <div style={{fontWeight:700}}>{inst.name.split(' ').slice(0,2).map((w,i)=>i===0?w:w[0]+'.').join(' ')}{isWork?' ★':''}</div>
+                      <div style={{fontWeight:700}}>{inst.name.split(' ').slice(0,2).map((w,i)=>i===0?w:w[0]+'.').join(' ')}{isAutoAdded?' ★':''}</div>
                       <div style={{fontSize:9,fontWeight:400,opacity:.8}}>{win}</div>
                     </th>
                   );
@@ -7220,7 +7247,9 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                   {displayInsts.length>0&&<td style={{width:8,background:'transparent',border:'none',padding:0}}/>}
                   {displayInsts.map(inst=>{
                     const hStr=`${h.toString().padStart(2,'0')}:00`;
-                    const v=(availability||{})[`${inst.id}_${month}`]?.[`${selDate}_${hStr}`];
+                    const rawV=(availability||{})[`${inst.id}_${month}`]?.[`${selDate}_${hStr}`];
+                    const isAssignedHour=(assignments?.[`schedule_${month}`]||[]).some(a=>a.date===selDate&&a.instructorId===inst.id&&parseInt(a.startHour)<=h&&parseInt(a.endHour)>h);
+                    const v=isAssignedHour?'work':rawV;
                     const c=PRIORITY_CHIP_COLORS[inst.priority]||{bg:'#F1EFE8',color:'#3C3489',border:'#888780'};
                     if(v===true)return<td key={inst.id} style={{background:c.bg,borderTop:`1px solid ${c.border}`,padding:0,height:36}}/>;
                     if(v==='work')return<td key={inst.id} style={{background:'#fef3c7',borderTop:'1px solid #fde68a',padding:0,height:36,textAlign:'center',verticalAlign:'middle',fontSize:14,lineHeight:'36px'}}>💼</td>;
@@ -7496,7 +7525,7 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
 // KATMANDU WIZARD
 // ═══════════════════════════════════════════════════════════════════════════
 function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast}){
-  const [courses,setCourses]=React.useState([{id:1,dow:3,hour:9,startStage:1}]);
+  const [courses,setCourses]=React.useState([{id:1,startDate:null,hour:9,startStage:1}]);
   const nextId=React.useRef(2);
 
   const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמנדו')||null,[activities]);
@@ -7504,15 +7533,25 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
 
   const [y,mNum]=month.split('-').map(Number);
 
-  // All dates in the month that fall on a given day-of-week (0=Sun)
-  const getDatesForDow=(dow)=>{
-    const dates=[];
-    const d=new Date(y,mNum-1,1);
-    while(d.getMonth()===mNum-1){
-      if(d.getDay()===dow) dates.push(d.getDate());
-      d.setDate(d.getDate()+1);
+  // All month dates with day names
+  const allMonthDates=React.useMemo(()=>{
+    const DOW_HE=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+    const arr=[];
+    const dt=new Date(y,mNum-1,1);
+    while(dt.getMonth()===mNum-1){
+      arr.push({date:dt.getDate(),dow:dt.getDay(),dowName:DOW_HE[dt.getDay()]});
+      dt.setDate(dt.getDate()+1);
     }
-    return dates;
+    return arr;
+  },[y,mNum]);
+
+  // Dates from startDate onward sharing the same day-of-week
+  const getDatesFromStart=(startDate)=>{
+    if(!startDate) return [];
+    const startEntry=allMonthDates.find(e=>e.date===startDate);
+    if(!startEntry) return [];
+    const dow=startEntry.dow;
+    return allMonthDates.filter(e=>e.date>=startDate&&e.dow===dow).map(e=>e.date);
   };
 
   // Check instructor available for 3 consecutive hours starting at `hour` on day `dayNum`
@@ -7534,22 +7573,26 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
 
   const addCourse=()=>{
     const id=nextId.current++;
-    setCourses(prev=>[...prev,{id,dow:1,hour:9,startStage:1}]);
+    setCourses(prev=>[...prev,{id,startDate:null,hour:9,startStage:1}]);
   };
   const removeCourse=(id)=>setCourses(prev=>prev.filter(c=>c.id!==id));
   const upd=(id,field,val)=>setCourses(prev=>prev.map(c=>c.id===id?{...c,[field]:val}:c));
+  const updInstSel=(cid,date,instId)=>setCourses(prev=>prev.map(c=>c.id===cid?{...c,instSel:{...(c.instSel||{}),[date]:instId}}:c));
 
   const generateAssignments=(course)=>{
     if(!katAct){showToast('לא נמצאה פעילות קטמנדו — בדוק בלשונית פעילויות');return;}
     if(!katBoat){showToast('לא נמצאה סירת קטמנדו — בדוק בלשונית ספינות');return;}
-    const dates=getDatesForDow(course.dow).slice(0,6-course.startStage);
+    if(!course.startDate){showToast('בחר תאריך התחלה');return;}
+    const dates=getDatesFromStart(course.startDate).slice(0,6-course.startStage);
+    const startEntry=allMonthDates.find(e=>e.date===course.startDate);
+    const courseDow=startEntry?startEntry.dow:0;
     const key=`schedule_${month}`;
     const existing=(assignments[key]||[]).filter(a=>a._katCourseId!==course.id);
     const now=Date.now();
     const newItems=dates.map((d,i)=>{
       const stage=Math.min(course.startStage+i,5);
-      const avInsts=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,course.hour));
-      const inst=avInsts[0]||null;
+      const selInstId=(course.instSel||{})[d]||null;
+      const inst=selInstId?instructors.find(i=>i.id===selInstId)||null:null;
       return{
         id:`kat_${course.id}_${d}_${now+i}`,
         _katCourseId:course.id,
@@ -7559,7 +7602,7 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
         boatName:katBoat.name,
         boatType:katBoat.type||'קטמנדו',
         date:d,
-        dayOfWeek:course.dow,
+        dayOfWeek:courseDow,
         startHour:`${course.hour.toString().padStart(2,'0')}:00`,
         endHour:`${(course.hour+3).toString().padStart(2,'0')}:00`,
         instructorId:inst?.id||null,
@@ -7589,8 +7632,8 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
 
       <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'flex-start'}}>
         {courses.map((course,ci)=>{
-          const dates=getDatesForDow(course.dow).slice(0,6-course.startStage);
-          const openDate=dates[0]?`${dates[0]}/${mNum.toString().padStart(2,'0')}`:'';
+          const dates=getDatesFromStart(course.startDate).slice(0,6-course.startStage);
+          const startEntry=course.startDate?allMonthDates.find(e=>e.date===course.startDate):null;
           return(
             <div key={course.id} style={{background:'var(--bg-card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',minWidth:230,flex:'1 1 230px',maxWidth:320}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
@@ -7602,10 +7645,11 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
               </div>
 
               <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 6px',alignItems:'center',marginBottom:10,fontSize:12}}>
-                <span style={{color:'var(--text-secondary)'}}>יום</span>
-                <select value={course.dow} onChange={e=>upd(course.id,'dow',Number(e.target.value))}
+                <span style={{color:'var(--text-secondary)'}}>תאריך התחלה</span>
+                <select value={course.startDate||''} onChange={e=>upd(course.id,'startDate',e.target.value?Number(e.target.value):null)}
                   style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  {[0,1,2,3,4].map(d=><option key={d} value={d}>{DOW_NAMES[d]}</option>)}
+                  <option value=''>— בחר —</option>
+                  {allMonthDates.map(e=><option key={e.date} value={e.date}>{e.date}/{mNum.toString().padStart(2,'0')} ({e.dowName})</option>)}
                 </select>
                 <span style={{color:'var(--text-secondary)'}}>שעה</span>
                 <select value={course.hour} onChange={e=>upd(course.id,'hour',Number(e.target.value))}
@@ -7635,6 +7679,7 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                       const stage=Math.min(course.startStage+i,5);
                       const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,course.hour));
                       const isLast=i===dates.length-1;
+                      const selInstId=(course.instSel||{})[d]||'';
                       return(
                         <tr key={d} style={{borderBottom:isLast?'none':'0.5px solid var(--border)'}}>
                           <td style={{padding:'4px',fontWeight:500,whiteSpace:'nowrap',fontSize:11}}>
@@ -7645,18 +7690,15 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                               {stage}
                             </span>
                           </td>
-                          <td style={{padding:'4px'}}>
-                            {availAndQual.length===0?(
-                              <span style={{fontSize:10,color:'#dc2626',fontWeight:500}}>⚠ אין</span>
-                            ):(
-                              <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
-                                {availAndQual.map(inst=>(
-                                  <span key={inst.id} style={{fontSize:10,padding:'1px 5px',borderRadius:3,background:'#dcfce7',color:'#166534'}}>
-                                    {inst.name.split(' ')[0]}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
+                          <td style={{padding:'4px',minWidth:90}}>
+                            <select value={selInstId} onChange={e=>updInstSel(course.id,d,e.target.value)}
+                              style={{fontSize:10,padding:'2px 4px',borderRadius:4,border:'1px solid var(--border)',width:'100%'}}>
+                              <option value=''>— בחר —</option>
+                              {availAndQual.map(inst=>(
+                                <option key={inst.id} value={inst.id}>{inst.name.split(' ').slice(0,2).join(' ')}</option>
+                              ))}
+                            </select>
+                            {availAndQual.length===0&&<span style={{fontSize:9,color:'#dc2626'}}>⚠ אין זמינים</span>}
                           </td>
                         </tr>
                       );
