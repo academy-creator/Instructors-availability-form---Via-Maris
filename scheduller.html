@@ -5935,10 +5935,10 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
           </tbody>
         </table>
       </div>
-      {popup&&(
-        <div onMouseLeave={hidePopup} style={{position:'fixed',zIndex:9999,top:Math.min(popup.y,window.innerHeight-320),left:Math.min(popup.x,window.innerWidth-280),background:'var(--card,#fff)',border:'1px solid #e2e8f0',borderRadius:10,boxShadow:'0 8px 32px rgba(0,0,0,.18)',minWidth:240,maxWidth:300,maxHeight:300,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-          <div style={{padding:'9px 14px 6px',fontWeight:700,fontSize:13,borderBottom:'1px solid #e2e8f0',flexShrink:0}}>{popup.title}</div>
-          <div style={{overflowY:'auto',flex:1}}>
+      {popup&&(()=>{const rowH=28,headH=38,totalH=headH+Math.max(1,popup.dateItems.length)*rowH;const top=Math.min(popup.y,window.innerHeight-totalH-8);return(
+        <div onMouseLeave={hidePopup} style={{position:'fixed',zIndex:9999,top,left:Math.min(popup.x,window.innerWidth-280),background:'var(--card,#fff)',border:'1px solid #e2e8f0',borderRadius:10,boxShadow:'0 8px 32px rgba(0,0,0,.18)',minWidth:240,maxWidth:300,display:'flex',flexDirection:'column'}}>
+          <div style={{padding:'9px 14px 6px',fontWeight:700,fontSize:13,borderBottom:'1px solid #e2e8f0'}}>{popup.title}</div>
+          <div>
             {popup.dateItems.length===0
               ?<div style={{padding:'10px 14px',color:'var(--text-light)',fontSize:12}}>אין שיבוצים</div>
               :popup.dateItems.map((it,i)=>(
@@ -5950,7 +5950,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
               ))}
           </div>
         </div>
-      )}
+      );})()}
     </div>
   );
 }
