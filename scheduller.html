@@ -5198,9 +5198,9 @@ function ScheduleTab({instructors,activities,boats,availability,setAvailability,
   }, [sortedSchedule]);
 
   const [collapsedDates, setCollapsedDates] = useState({});
-  const toggleDate = (date) => setCollapsedDates(p => ({...p, [date]: !p[date]}));
-  const collapseAll = () => setCollapsedDates(Object.fromEntries(scheduleByDate.map(([d])=>[d,true])));
-  const expandAll  = () => setCollapsedDates({});
+  const toggleDate = (date) => setCollapsedDates(p => ({...p, [date]: p[date] === false}));
+  const collapseAll = () => setCollapsedDates({});
+  const expandAll  = () => setCollapsedDates(Object.fromEntries(scheduleByDate.map(([d])=>[d,false])));
 
   // Validate a (possibly edited) schedule item against all rules.
   // Returns {errors: [...] (hard), warnings: [...] (soft)}.
@@ -5397,7 +5397,7 @@ function ScheduleTab({instructors,activities,boats,availability,setAvailability,
               <span style={{fontSize:11,color:'var(--text-light)',marginRight:'auto'}}>{scheduleByDate.length} תאריכים · {sortedSchedule.length} שיבוצים</span>
             </div>
             {scheduleByDate.map(([date, items]) => {
-              const isCollapsed = !!collapsedDates[date];
+              const isCollapsed = collapsedDates[date] !== false;
               const hasUnassigned = items.some(it => !it.instructorId);
               const [yr,moN]=month.split('-').map(Number);
               const dow = date !== 'ללא תאריך' ? new Date(yr,moN-1,Number(date)).getDay() : null;
@@ -7141,6 +7141,51 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const [dlgBoatType,setDlgBoatType]=useState('');
   const [dragEvId,setDragEvId]=useState(null);
   const schedKey=`schedule_${month}`;
+  const [editModalItem,setEditModalItem]=useState(null);
+  const validateAsgn=(item,allItems)=>{
+    const t2m=(t)=>{if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m;};
+    const errors=[],warnings=[];
+    const activity=(activities||[]).find(a=>a.id===item.activityId);
+    const boat=(boats||[]).find(b=>b.id===item.boatId);
+    const inst=(instructors||[]).find(i=>i.id===item.instructorId);
+    if(!item.date){errors.push('תאריך חסר');return{errors,warnings};}
+    if(!item.startHour||!item.endHour){errors.push('שעות חסרות');return{errors,warnings};}
+    const startMin=t2m(item.startHour),endMin=t2m(item.endHour);
+    if(endMin<=startMin)errors.push('שעת סיום לפני התחלה');
+    if(!activity)errors.push('פעילות לא תקפה');
+    if(!boat)errors.push('סירה לא תקפה');
+    if(inst&&activity){
+      const skills=inst.skills||[];
+      if(skills.length===0){errors.push('המדריך ללא יכולות');}
+      else{
+        const hasSpecific=skills.includes(activity.name);
+        const isClub=activity.activityType==='club';
+        const isAdvanced=activity.activityType==='advanced';
+        const hasClubBlanket=isClub&&skills.includes('מודרכת מועדון');
+        const hasAdvancedBlanket=isAdvanced&&skills.includes('מודרכות מתקדמות');
+        if(!hasSpecific&&!hasClubBlanket&&!hasAdvancedBlanket)errors.push('המדריך לא מוסמך לפעילות');
+      }
+      const avail=(availability||{})[`${inst.id}_${month}`]||{};
+      for(let m=startMin;m<endMin;m+=60){
+        const h=Math.floor(m/60);
+        if(avail[`${item.date}_${h.toString().padStart(2,'0')}:00`]!==true){errors.push(`המדריך לא זמין בשעה ${h.toString().padStart(2,'0')}:00`);break;}
+      }
+      const sameInstSameDay=allItems.filter(s=>s.id!==item.id&&s.instructorId===inst.id&&s.date===item.date&&s.startHour);
+      for(const s of sameInstSameDay){
+        if(t2m(s.startHour)<endMin&&t2m(s.endHour)>startMin){errors.push(`חופף לשיבוץ קיים: ${s.activityName} ${s.startHour}-${s.endHour}`);break;}
+      }
+    }
+    return{errors,warnings};
+  };
+  const saveAsgnEdit=(updatedItem)=>{
+    setAssignments(prev=>{
+      const arr=Array.isArray(prev[schedKey])?[...prev[schedKey]]:[];
+      const idx=arr.findIndex(s=>s.id===updatedItem.id);
+      if(idx>=0)arr[idx]={...arr[idx],...updatedItem};else arr.push(updatedItem);
+      return{...prev,[schedKey]:arr};
+    });
+    setEditModalItem(null);
+  };
 
   const openAdd=(boatId,boatName,h)=>{
     const boatObj=boats.find(b=>b.id===boatId);
@@ -7214,6 +7259,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   return(
     <div>
       <ManualEventDialog dlg={dlg} dlgActId={dlgActId} setDlgActId={setDlgActId} dlgStart={dlgStart} setDlgStart={setDlgStart} dlgInstId={dlgInstId} setDlgInstId={setDlgInstId} dlgBoatType={dlgBoatType} setDlgBoatType={setDlgBoatType} activities={activities||[]} displayInsts={displayInsts} instructors={instructors} onSave={saveManualEvent} onDelete={deleteManualEvent} onClose={()=>setDlg(null)}/>
+      {editModalItem&&<EditScheduleItemModal item={editModalItem} instructors={instructors||[]} activities={activities||[]} boats={boats||[]} month={month} validate={(it)=>validateAsgn(it,Array.isArray(assignments[schedKey])?assignments[schedKey]:[])} onSave={saveAsgnEdit} onCancel={()=>setEditModalItem(null)}/>}
       <div className="card">
         <div className="card-header">
           <h2>✅ שיבוץ סופי
@@ -7297,6 +7343,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                                 onDragStart={ev.source==='manual'?e=>{e.dataTransfer.setData('evid',ev.id);setDragEvId(ev.id);}:null}
                                 onDragEnd={()=>setDragEvId(null)}
                                 onClick={ev.id?e=>{e.stopPropagation();openEdit(ev);}:null}
+                                onDoubleClick={ev.id?e=>{e.stopPropagation();setEditModalItem(ev);}:null}
                                 style={{flex:1,background:ev.color,color:ev.textColor,padding:'4px 6px',borderRadius:3,minWidth:0,height:'100%',boxSizing:'border-box',overflow:'hidden',cursor:ev.id?'pointer':'default',border:ev.source==='manual'?'1.5px solid rgba(0,0,0,.12)':'none'}}>
                                 <div style={{fontSize:10,opacity:.85}}><span dir="ltr">{fmtTime(ev.startMin)}–{fmtTime(ev.endMin)}</span></div>
                                 <div style={{fontWeight:600,marginTop:2,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.title}</div>
