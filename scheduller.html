@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.27';
+const SCHEDULER_VERSION = 'v6.28';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -5186,6 +5186,22 @@ function ScheduleTab({instructors,activities,boats,availability,setAvailability,
     });
   }, [schedule]);
 
+  // Group by date
+  const scheduleByDate = useMemo(() => {
+    const map = {};
+    sortedSchedule.forEach(item => {
+      const key = item.date || 'ללא תאריך';
+      if (!map[key]) map[key] = [];
+      map[key].push(item);
+    });
+    return Object.entries(map).sort(([a],[b]) => Number(a)-Number(b));
+  }, [sortedSchedule]);
+
+  const [collapsedDates, setCollapsedDates] = useState({});
+  const toggleDate = (date) => setCollapsedDates(p => ({...p, [date]: !p[date]}));
+  const collapseAll = () => setCollapsedDates(Object.fromEntries(scheduleByDate.map(([d])=>[d,true])));
+  const expandAll  = () => setCollapsedDates({});
+
   // Validate a (possibly edited) schedule item against all rules.
   // Returns {errors: [...] (hard), warnings: [...] (soft)}.
   function validateScheduleItem(item, allItems) {
@@ -5375,21 +5391,35 @@ function ScheduleTab({instructors,activities,boats,availability,setAvailability,
           </div>
         ) : (
           <div style={{overflowX:'auto'}}>
-            <table>
-              <thead>
-                <tr>
-                  <th>תאריך</th><th>יום</th><th>שעה</th><th>פעילות</th><th>ספינה</th><th>מדריך</th><th></th>
-                </tr>
-              </thead>
+            <div style={{display:'flex',gap:6,marginBottom:8,alignItems:'center'}}>
+              <button className="btn btn-outline btn-sm" onClick={expandAll}>+ פתח הכל</button>
+              <button className="btn btn-outline btn-sm" onClick={collapseAll}>− סגור הכל</button>
+              <span style={{fontSize:11,color:'var(--text-light)',marginRight:'auto'}}>{scheduleByDate.length} תאריכים · {sortedSchedule.length} שיבוצים</span>
+            </div>
+            {scheduleByDate.map(([date, items]) => {
+              const isCollapsed = !!collapsedDates[date];
+              const hasUnassigned = items.some(it => !it.instructorId);
+              const [yr,moN]=month.split('-').map(Number);
+              const dow = date !== 'ללא תאריך' ? new Date(yr,moN-1,Number(date)).getDay() : null;
+              return (
+                <div key={date} style={{marginBottom:6,border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'}}>
+                  <div onClick={()=>toggleDate(date)} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 12px',background:'var(--bg-secondary,#f8fafc)',cursor:'pointer',userSelect:'none'}}>
+                    <span style={{fontWeight:700,fontSize:14,color:hasUnassigned?'var(--danger)':'var(--text)'}}>{isCollapsed?'＋':'－'}</span>
+                    <span style={{fontWeight:600,fontSize:13}}>{date !== 'ללא תאריך' ? `${date}/${moN.toString().padStart(2,'0')}` : date}{dow!=null?' ('+DAYS_HEB[dow]+')':''}</span>
+                    <span style={{fontSize:11,color:'var(--text-light)',marginRight:'auto'}}>{items.length} שיבוצים{hasUnassigned?' · ⚠ חסרים מדריכים':''}</span>
+                  </div>
+                  {!isCollapsed && (
+                  <table style={{width:'100%'}}>
+              <thead><tr>
+                  <th>שעה</th><th>פעילות</th><th>ספינה</th><th>מדריך</th><th></th>
+                </tr></thead>
               <tbody>
-                {sortedSchedule.map(item => {
+                {items.map(item => {
                   const isUnassigned = !item.instructorId;
                   const rowStyle = isUnassigned ? {background:'#fee2e2'} : {};
                   const isEditing = editingItem === item.id;
                   return (
                     <tr key={item.id} style={rowStyle}>
-                      <td>{item.date || '—'}</td>
-                      <td>{item.dayOfWeek != null ? DAYS_HEB[item.dayOfWeek] : '—'}</td>
                       <td style={{fontFamily:'monospace',fontSize:12}}>
                         {isEditing ? (
                           <span>
@@ -5471,6 +5501,10 @@ function ScheduleTab({instructors,activities,boats,availability,setAvailability,
                 })}
               </tbody>
             </table>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
