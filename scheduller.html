@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.28';
+const SCHEDULER_VERSION = 'v6.31';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -5783,6 +5783,12 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
   const schedule = Array.isArray(rawSchedule) ? rawSchedule : [];
 
   const timeToMin = (t) => { if(!t) return 0; const [h,m]=t.split(':').map(Number); return h*60+m; };
+  const [popup,setPopup]=React.useState(null);
+  const showPopup=(e,title,dateItems,lineKey)=>{
+    const r=e.currentTarget.getBoundingClientRect();
+    setPopup({title,dateItems,lineKey,x:r.right+8,y:r.top});
+  };
+  const hidePopup=()=>setPopup(null);
   const itemHours = (it) => it.startHour && it.endHour ? (timeToMin(it.endHour)-timeToMin(it.startHour))/60 : 0;
 
   const instStats = useMemo(()=>{
@@ -5797,7 +5803,8 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
       const utilization = ideal ? Math.round(totalHours/ideal*100) : null;
       // days worked this month
       const daysWorked = new Set(items.map(i => i.date).filter(Boolean)).size;
-      return {id:inst.id, name:inst.name, priority:inst.priority||'medium', assignmentCount, totalHours, availSlots, workSlots, ideal, utilization, daysWorked};
+      const instDateItems=items.filter(s=>s.date).map(s=>({date:s.date,activityName:s.activityName||'',startHour:s.startHour||'',endHour:s.endHour||''})).sort((a,b)=>Number(a.date)-Number(b.date));
+      return {id:inst.id, name:inst.name, priority:inst.priority||'medium', assignmentCount, totalHours, availSlots, workSlots, ideal, utilization, daysWorked, dateItems:instDateItems};
     }).sort((a,b) => b.totalHours - a.totalHours || a.name.localeCompare(b.name));
   },[instructors, schedule, availability, month]);
 
@@ -5811,7 +5818,8 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
       // Cap displayed percentage at 100%. Show overflow as a warning if present.
       const pct = total ? Math.min(100, Math.round(placed/total*100)) : 0;
       const overflow = total ? Math.max(0, placed - total) : placed;
-      return {id:act.id, name:act.name, type:act.activityType||'students', placed, withInstructor, total, pct, overflow, rescueCount};
+      const actDateItems=items.filter(s=>s.date).map(s=>({date:s.date,instName:instructors.find(i=>i.id===s.instructorId)?.name||'ללא מדריך',startHour:s.startHour||'',endHour:s.endHour||''})).sort((a,b)=>Number(a.date)-Number(b.date));
+      return {id:act.id, name:act.name, type:act.activityType||'students', placed, withInstructor, total, pct, overflow, rescueCount, dateItems:actDateItems};
     });
   },[activities, schedule]);
 
@@ -5864,7 +5872,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
             <thead><tr><th>מדריך</th><th>ימים</th><th>שיבוצים</th><th>שעות</th><th>ניצולת מול אידיאל</th></tr></thead>
             <tbody>
               {instStats.map(s=>(
-                <tr key={s.id}>
+                <tr key={s.id} style={{cursor:'default'}} onMouseEnter={e=>showPopup(e,s.name,s.dateItems,'activityName')} onMouseLeave={hidePopup}>
                   <td style={{fontWeight:600}}>{s.name}</td>
                   <td>{s.daysWorked}</td>
                   <td>{s.assignmentCount}</td>
@@ -5890,7 +5898,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
             <thead><tr><th>פעילות</th><th>סוג</th><th>שובצו / נדרשים</th><th>מילוי</th></tr></thead>
             <tbody>
               {actStats.map(s=>(
-                <tr key={s.id}>
+                <tr key={s.id} style={{cursor:'default'}} onMouseEnter={e=>showPopup(e,s.name,s.dateItems,'instName')} onMouseLeave={hidePopup}>
                   <td style={{fontWeight:600}}>{s.name}</td>
                   <td style={{fontSize:12}}>{s.type==='club'?'מועדון':s.type==='advanced'?'מתקדמות':'תלמידים'}</td>
                   <td>
@@ -5927,6 +5935,22 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
           </tbody>
         </table>
       </div>
+      {popup&&(
+        <div onMouseLeave={hidePopup} style={{position:'fixed',zIndex:9999,top:Math.min(popup.y,window.innerHeight-320),left:Math.min(popup.x,window.innerWidth-280),background:'var(--card,#fff)',border:'1px solid #e2e8f0',borderRadius:10,boxShadow:'0 8px 32px rgba(0,0,0,.18)',minWidth:240,maxWidth:300,maxHeight:300,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+          <div style={{padding:'9px 14px 6px',fontWeight:700,fontSize:13,borderBottom:'1px solid #e2e8f0',flexShrink:0}}>{popup.title}</div>
+          <div style={{overflowY:'auto',flex:1}}>
+            {popup.dateItems.length===0
+              ?<div style={{padding:'10px 14px',color:'var(--text-light)',fontSize:12}}>אין שיבוצים</div>
+              :popup.dateItems.map((it,i)=>(
+                <div key={i} style={{padding:'5px 14px',borderBottom:'1px solid #f1f5f9',fontSize:12,display:'flex',gap:8,alignItems:'center'}}>
+                  <span style={{fontWeight:700,color:'var(--primary)',minWidth:22}}>{it.date}</span>
+                  <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--text)'}}>{it[popup.lineKey]}</span>
+                  <span dir='ltr' style={{flexShrink:0,color:'var(--text-light)',fontSize:11}}>{it.startHour}{it.endHour?'–'+it.endHour:''}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
