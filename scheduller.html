@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.23';
+const SCHEDULER_VERSION = 'v6.25';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -573,6 +573,7 @@ function App(){
                 instructors, activities, availability, assignments, month,
                 boats, crmEvents, roomBoatMap, sheetSkills, inbox,
                 daylightStart, daylightEnd,
+                weeklySelections, katCourses,
                 _exportedAt: new Date().toISOString(),
                 _version: SCHEDULER_VERSION,
               };
@@ -602,6 +603,8 @@ function App(){
                     if(d.daylightStart)setDaylightStart(d.daylightStart);
                     if(d.daylightEnd)setDaylightEnd(d.daylightEnd);
                     if(d.month)setMonth(d.month);
+                    if(d.weeklySelections)setWeeklySelections(d.weeklySelections);
+                    if(d.katCourses)setKatCourses(d.katCourses);
                   }else{
                     if(d.instructors)setInstructors(p=>[...p,...d.instructors.filter(x=>!p.find(y=>y.id===x.id))]);
                     if(d.activities)setActivities(p=>[...p,...d.activities.filter(x=>!p.find(y=>y.id===x.id))]);
@@ -7070,7 +7073,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       const remInMonth=Math.max(0,monthly-donePrev);
       // Divide by remainingWeekdays so rounding errors don't accumulate across weeks
       const weeklyTarget=remainingWeekdays>0?Math.round(remInMonth/remainingWeekdays*weekdaysThisWeek):0;
-      const remaining=Math.max(0,weeklyTarget-doneThis);
+      const remaining=weeklyTarget-doneThis; // can go negative = over-scheduled
       const types=a.allowedBoatTypes||[];
       const ids=a.allowedBoatIds||[];
       const typeSet=new Set(types);
@@ -7197,13 +7200,13 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
               return(
                 <div key={type} style={{background:'var(--card)',border:'0.5px solid #e2e8f0',borderRadius:8,padding:'10px 12px',flex:isBS?'4 1 0':'1 1 0',minWidth:0,overflow:'hidden'}}>
                   <div style={{fontSize:11,fontWeight:700,color:'var(--text-light)'}}>{type}</div>
-                  <div style={{fontSize:26,fontWeight:700,color:remaining===0?'#16a34a':'var(--text)',lineHeight:1.1}}>{remaining}</div>
+                  <div style={{fontSize:26,fontWeight:700,color:remaining===0?'#16a34a':remaining<0?'#dc2626':'var(--text)',lineHeight:1.1}}>{remaining}</div>
                   <div style={{fontSize:11,color:'var(--text-light)',marginBottom:6}}>נותר מ-{weeklyTotal}{(weeklyCounters[type]?.extraDone||0)>0?` (כולל ${weeklyCounters[type].extraDone} ללא שם)`:''}</div>
                   <div style={{borderTop:'0.5px solid #e2e8f0',paddingTop:5,display:isBS?'grid':'flex',gridTemplateColumns:isBS?'1fr 1fr':undefined,gap:'1px 12px',flexDirection:isBS?undefined:'column'}}>
                     {acts.map(a=>(
                       <div key={a.id} style={{display:'flex',justifyContent:'space-between',gap:4,fontSize:12,padding:'1px 0'}}>
                         <span style={{color:'var(--text-light)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</span>
-                        <span style={{fontWeight:600,color:a.remaining===0?'#16a34a':'var(--text)',flexShrink:0,marginRight:4}}>{a.remaining}</span>
+                        <span style={{fontWeight:600,color:a.remaining===0?'#16a34a':a.remaining<0?'#dc2626':'var(--text)',flexShrink:0,marginRight:4}}>{a.remaining}</span>
                       </div>
                     ))}
                   </div>
