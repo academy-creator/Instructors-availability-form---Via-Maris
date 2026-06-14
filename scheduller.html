@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.21';
+const SCHEDULER_VERSION = 'v6.22';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -401,6 +401,8 @@ function App(){
   const [tab,setTab]=useState('instructors');
   const [weeklySelections,setWeeklySelections]=useState({});
   const [assignmentViewDate,setAssignmentViewDate]=useState(null);
+  const [weeklyPlanIdx,setWeeklyPlanIdx]=useState(0);
+  const [weeklyPlanShowWeekend,setWeeklyPlanShowWeekend]=useState(false);
   const [katCourses,setKatCourses]=useState([{id:Date.now(),startDate:null,hour:9,startStage:1,assigned:false,instSel:{}}]);
   const [instructors,setInstructors]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('sch_instructors'))||[];}catch{return [];}
@@ -639,7 +641,7 @@ function App(){
         {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={weeklySelections} initDate={assignmentViewDate} setTab={setTab}/>}
         {tab==='katamaran'&&<KatamaranWizard instructors={instructors} activities={activities} boats={boats} crmEvents={crmEvents} roomBoatMap={roomBoatMap} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
         {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} katCourses={katCourses} setKatCourses={setKatCourses}/>}
-        {tab==='weeklyplan'&&<WeeklyPlanTab instructors={instructors} availability={availability} month={month} activities={activities} assignments={assignments} setTab={setTab} weeklySelections={weeklySelections} setWeeklySelections={setWeeklySelections} setAssignmentViewDate={setAssignmentViewDate}/>}
+        {tab==='weeklyplan'&&<WeeklyPlanTab instructors={instructors} availability={availability} month={month} activities={activities} assignments={assignments} setTab={setTab} weeklySelections={weeklySelections} setWeeklySelections={setWeeklySelections} setAssignmentViewDate={setAssignmentViewDate} weekIdx={weeklyPlanIdx} setWeekIdx={setWeeklyPlanIdx} showWeekend={weeklyPlanShowWeekend} setShowWeekend={setWeeklyPlanShowWeekend}/>}
         {tab==='inbox'&&<InboxTab inbox={inbox} setInbox={setInbox} instructors={instructors} setInstructors={setInstructors} availability={availability} setAvailability={setAvailability} setAssignments={setAssignments} setMonth={setMonth} currentMonth={month} showToast={showToast}/>}
         </ErrorBoundary>
       </div>
@@ -6586,8 +6588,8 @@ function InboxItemModal({item,onClose,onApply,onReject}){
 }
 
 
-function WeeklyPlanTab({instructors,availability,month,activities,assignments,setTab,weeklySelections,setWeeklySelections,setAssignmentViewDate}){
-  const [weekIdx,setWeekIdx]=React.useState(0);
+function WeeklyPlanTab({instructors,availability,month,activities,assignments,setTab,weeklySelections,setWeeklySelections,setAssignmentViewDate,weekIdx,setWeekIdx,showWeekend,setShowWeekend}){
+  // weekIdx/setWeekIdx lifted to App
   const {weeks,mo}=React.useMemo(()=>{
     const [yr,moN]=month.split('-').map(Number);
     const dim=new Date(yr,moN,0).getDate();
@@ -6640,7 +6642,7 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
   };
   const navigateDay=(date)=>{setAssignmentViewDate(date);setTab('assignmentview');};
 
-  const [showWeekend,setShowWeekend]=React.useState(false);
+  // showWeekend/setShowWeekend lifted to App
 
   const getHourRanges=(inst,dayNum)=>{
     const av=(availability&&availability[`${inst.id}_${month}`])||{};
