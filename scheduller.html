@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.22';
+const SCHEDULER_VERSION = 'v6.23';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -7025,8 +7025,9 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   },[instructors,availability,weeklySelections,month,selDate,selDateObj]);
 
   // ── Weekly counters per boat type ──────────────────────────────────────────
-  // Formula: weeklyTarget = (monthly - donePrevWeeks) / totalWeekdays * weekdaysThisWeek
-  // Carry-over: undone quota from past weeks raises this week's target automatically.
+  // Formula: weeklyTarget = (monthly - donePrevWeeks) / remainingWeekdays * weekdaysThisWeek
+  // 'remainingWeekdays' = weekdays from start of this week to end of month (not total month)
+  // This ensures exact total across all weeks and correct carry-over of undone quota.
   const BS_TYPES=new Set(['בי"ס']);
   const TYPE_ORDER=['קטמרן','מנועית','קטמנדו','מונוהול','בי"ס'];
   const weeklyCounters=useMemo(()=>{
@@ -7036,13 +7037,14 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     const weeks=[];let wk=[];
     for(let i=1;i<=dim;i++){const dow=new Date(yr,moN-1,i).getDay();if(dow===0&&wk.length>0){weeks.push(wk);wk=[];}wk.push(i);}
     if(wk.length)weeks.push(wk);
-    const curWeekIdx=weeks.findIndex(w=>w.includes(selDate));
-    const curWeek=weeks[Math.max(0,curWeekIdx)];
+    const curWeekIdx=Math.max(0,weeks.findIndex(w=>w.includes(selDate)));
+    const curWeek=weeks[curWeekIdx];
     const weekDateSet=new Set(curWeek);
-    const prevDateSet=new Set(weeks.slice(0,Math.max(0,curWeekIdx)).flat());
+    const prevDateSet=new Set(weeks.slice(0,curWeekIdx).flat());
     // ימי חול = ראשון-חמישי (0-4)
     const isWeekday=d=>new Date(yr,moN-1,d).getDay()<=4;
-    const totalWeekdays=weeks.flat().filter(isWeekday).length;
+    // Weekdays from current week onward (for division — avoids rounding loss)
+    const remainingWeekdays=weeks.slice(curWeekIdx).flat().filter(isWeekday).length;
     const weekdaysThisWeek=curWeek.filter(isWeekday).length;
     const schedArr=Array.isArray(rawSched)?rawSched:[];
     const actDonePrev={},actDoneThis={},typeDoneExtraThis={};
@@ -7066,7 +7068,8 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       const donePrev=actDonePrev[a.id]||0;
       const doneThis=actDoneThis[a.id]||0;
       const remInMonth=Math.max(0,monthly-donePrev);
-      const weeklyTarget=totalWeekdays>0?Math.round(remInMonth/totalWeekdays*weekdaysThisWeek):0;
+      // Divide by remainingWeekdays so rounding errors don't accumulate across weeks
+      const weeklyTarget=remainingWeekdays>0?Math.round(remInMonth/remainingWeekdays*weekdaysThisWeek):0;
       const remaining=Math.max(0,weeklyTarget-doneThis);
       const types=a.allowedBoatTypes||[];
       const ids=a.allowedBoatIds||[];
