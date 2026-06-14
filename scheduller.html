@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.25';
+const SCHEDULER_VERSION = 'v6.27';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -399,7 +399,7 @@ class ErrorBoundary extends React.Component {
 
 function App(){
   const [tab,setTab]=useState('instructors');
-  const [weeklySelections,setWeeklySelections]=useState({});
+  const [weeklySelections,setWeeklySelections]=useState(()=>{try{return JSON.parse(localStorage.getItem('sch_weekly_selections'))||{};}catch{return {};}});
   const [assignmentViewDate,setAssignmentViewDate]=useState(null);
   const [weeklyPlanIdx,setWeeklyPlanIdx]=useState(0);
   const [weeklyPlanShowWeekend,setWeeklyPlanShowWeekend]=useState(false);
@@ -490,6 +490,7 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('sch_activities',JSON.stringify(activities));}catch{}},[activities]);
   useEffect(()=>{try{localStorage.setItem('sch_availability',JSON.stringify(availability));}catch{}},[availability]);
   useEffect(()=>{try{localStorage.setItem('sch_assignments',JSON.stringify(assignments));}catch{}},[assignments]);
+  useEffect(()=>{try{localStorage.setItem('sch_weekly_selections',JSON.stringify(weeklySelections));}catch{}},[weeklySelections]);
   useEffect(()=>{try{localStorage.setItem('sch_selected_month',month);}catch{}},[month]);
   useEffect(()=>{try{localStorage.setItem('sch_boats',JSON.stringify(boats));}catch{}},[boats]);
   useEffect(()=>{
@@ -612,6 +613,7 @@ function App(){
                     if(d.crmEvents)setCrmEvents(p=>[...p,...(d.crmEvents||[]).filter(x=>!p.find(y=>y.id===x.id))]);
                     if(d.availability)setAvailability(p=>({...p,...d.availability}));
                     if(d.assignments)setAssignments(p=>({...p,...d.assignments}));
+                    if(d.weeklySelections)setWeeklySelections(p=>({...p,...d.weeklySelections}));
                   }
                   const counts=[];
                   if(d.instructors) counts.push(`${d.instructors.length} מדריכים`);
@@ -7083,7 +7085,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
         const nk=TYPE_ORDER.find(tt=>nm(tt)===nm(t))||t;
         if(!byType[nk])byType[nk]={weeklyTotal:0,doneAll:0,acts:[],extraDone:0};
         byType[nk].weeklyTotal+=weeklyTarget;
-        byType[nk].doneAll+=Math.min(doneThis,weeklyTarget);
+        byType[nk].doneAll+=doneThis; // no cap — allows negative remaining
         byType[nk].acts.push({id:a.id,name:a.name,total:weeklyTarget,done:doneThis,remaining});
       });
     });
@@ -7195,7 +7197,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
           <div style={{display:'flex',gap:10,padding:'8px 0 4px',alignItems:'stretch',width:'100%',boxSizing:'border-box'}}>
             {[...TYPE_ORDER,...Object.keys(weeklyCounters).filter(t=>!TYPE_ORDER.includes(t))].filter(t=>weeklyCounters[t]).map(type=>{
               const{weeklyTotal,doneAll,acts}=weeklyCounters[type];
-              const remaining=Math.max(0,weeklyTotal-doneAll);
+              const remaining=weeklyTotal-doneAll; // can go negative
               const isBS=type.includes('בי')&&type.includes('ס');
               return(
                 <div key={type} style={{background:'var(--card)',border:'0.5px solid #e2e8f0',borderRadius:8,padding:'10px 12px',flex:isBS?'4 1 0':'1 1 0',minWidth:0,overflow:'hidden'}}>
