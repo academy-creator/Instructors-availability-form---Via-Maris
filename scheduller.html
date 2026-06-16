@@ -642,7 +642,7 @@ function App(){
         {tab==='availability'&&<AvailabilityTab instructors={instructors} availability={availability} setAvailability={setAvailability} month={month} showToast={showToast} lastAppliedId={assignments._lastAppliedInstructor}/>}
         {tab==='boatavail'&&<BoatAvailabilityTab boats={boats} crmEvents={crmEvents} setCrmEvents={setCrmEvents} roomBoatMap={roomBoatMap} setRoomBoatMap={setRoomBoatMap} month={month} showToast={showToast}/>}
         {tab==='schedule'&&<ScheduleTab instructors={instructors} activities={activities} boats={boats} availability={availability} setAvailability={setAvailability} assignments={assignments} setAssignments={setAssignments} month={month} crmEvents={crmEvents} roomBoatMap={roomBoatMap} showToast={showToast} allSkills={allSkills} daylightStart={daylightStart} daylightEnd={daylightEnd}/>}
-        {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month}/>}
+        {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month} crmEvents={crmEvents}/>}
         {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={weeklySelections} initDate={assignmentViewDate} setTab={setTab}/>}
         {tab==='katamaran'&&<KatamaranWizard instructors={instructors} activities={activities} boats={boats} crmEvents={crmEvents} roomBoatMap={roomBoatMap} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
         {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} katCourses={katCourses} setKatCourses={setKatCourses}/>}
@@ -5777,7 +5777,97 @@ function ManualEntryDialog({month, boats, instructors, activities, onCancel, onA
   );
 }
 
-function StatsTab({instructors,activities,boats,availability,assignments,month}){
+
+function InstructorExportModal({stat,month,onClose}){
+  const items=stat.dateItems||[];
+  const assignItems=items.filter(i=>i.source==='assignment');
+  const crmItems=items.filter(i=>i.source==='crm');
+  const timeToMin=(t)=>{if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m;};
+  const calcH=(s,e)=>s&&e?(timeToMin(e)-timeToMin(s))/60:0;
+  const assignHours=assignItems.reduce((s,i)=>s+calcH(i.startHour,i.endHour),0);
+  const crmHours=crmItems.reduce((s,i)=>s+calcH(i.startHour,i.endHour),0);
+  const totalHours=assignHours+crmHours;
+  const fmtDate=(fullDate,day)=>{
+    if(fullDate){try{const d=new Date(fullDate);const dow=['א','ב','ג','ד','ה','ו','ש'][d.getDay()];return String(day||'').padStart(2,'0')+'/'+month.slice(5,7)+' יום '+dow;}catch(ex){}}
+    return String(day||'').padStart(2,'0')+'/'+month.slice(5,7);
+  };
+  const doPrint=()=>{
+    const rows=items.map(it=>'<tr><td>'+fmtDate(it.fullDate,it.date)+'</td><td dir="ltr">'+
+      (it.startHour||'')+(it.endHour?'–'+it.endHour:'')+'</td><td>'+
+      (it.activityName||'').replace(/</g,'&lt;')+'</td><td>'+
+      (it.source==='crm'?'CRM':'שיבוץ')+'</td></tr>').join('');
+    const w=window.open('','_blank','width=620,height=700');
+    if(!w) return;
+    w.document.write('<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>'+
+      stat.name+' — '+month+'</title><style>body{font-family:Arial,sans-serif;padding:24px;font-size:13px}'+
+      'h2{margin:0 0 4px}p.sub{margin:0 0 16px;color:#64748b;font-size:12px}'+
+      'table{width:100%;border-collapse:collapse}th,td{padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:right}'+
+      'th{background:#f8fafc;font-weight:600}tfoot td{font-weight:700;border-top:2px solid #cbd5e1}'+
+      '.crm{background:#f1f5f9;color:#475569;border-radius:4px;padding:1px 6px;font-size:11px}'+
+      '.asgn{background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 6px;font-size:11px}'+
+      '@media print{button{display:none}}</style></head><body>'+
+      '<h2>'+stat.name+'</h2><p class="sub">'+month+' · '+items.length+' פעילויות · '+totalHours.toFixed(1)+' שעות</p>'+
+      '<table><thead><tr><th>תאריך</th><th>שעות</th><th>פעילות</th><th>מקור</th></tr></thead>'+
+      '<tbody>'+rows+'</tbody>'+
+      '<tfoot><tr><td>סה"כ</td><td colspan="3">שיבוצים '+assignHours.toFixed(1)+' ש\'+ CRM X</td></tr></tfoot>'+
+      '<td>שיבוצים '+assignHours.toFixed(1)+' ש\' + CRM '+crmHours.toFixed(1)+' ש\'</td><td></td></tr></tfoot>'+
+      '</table><br><button onclick="window.print()" style="padding:8px 20px;cursor:pointer">הדפס / שמור PDF</button>'+
+      '</body></html>');
+    w.document.close();
+  };
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
+      <div style={{background:'var(--card,#fff)',borderRadius:14,width:580,maxHeight:'85vh',display:'flex',flexDirection:'column',overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
+        <div style={{padding:'16px 20px 12px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>{stat.name} — {month}</div>
+            <div style={{fontSize:12,color:'var(--text-light)',marginTop:2}}>{items.length} פעילויות · {totalHours.toFixed(1)} שעות</div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'var(--text-light)',lineHeight:1,padding:'0 4px'}}>×</button>
+        </div>
+        <div style={{overflowY:'auto',flex:1}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead>
+              <tr style={{background:'var(--bg,#f8fafc)',position:'sticky',top:0}}>
+                <th style={{padding:'7px 12px',textAlign:'right',fontWeight:600}}>תאריך</th>
+                <th style={{padding:'7px 8px',textAlign:'right',fontWeight:600}}>שעות</th>
+                <th style={{padding:'7px 12px',textAlign:'right',fontWeight:600}}>פעילות</th>
+                <th style={{padding:'7px 10px',textAlign:'right',fontWeight:600}}>מקור</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it,i)=>(
+                <tr key={i} style={{borderBottom:'1px solid #f1f5f9'}}>
+                  <td style={{padding:'6px 12px',whiteSpace:'nowrap'}}>{fmtDate(it.fullDate,it.date)}</td>
+                  <td style={{padding:'6px 8px',direction:'ltr',whiteSpace:'nowrap',fontSize:12}}>{it.startHour}{it.endHour?'–'+it.endHour:''}</td>
+                  <td style={{padding:'6px 12px',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.activityName}</td>
+                  <td style={{padding:'6px 10px'}}>
+                    {it.source==='crm'
+                      ?<span style={{fontSize:11,background:'#f1f5f9',color:'#475569',borderRadius:4,padding:'2px 6px',border:'1px solid #e2e8f0'}}>CRM</span>
+                      :<span style={{fontSize:11,background:'#dbeafe',color:'#1e40af',borderRadius:4,padding:'2px 6px'}}>שיבוץ</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{padding:'10px 20px',borderTop:'1px solid #e2e8f0',background:'var(--bg,#f8fafc)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div style={{fontSize:12,color:'var(--text-light)'}}>
+            שיבוצים: <b style={{color:'#1e40af'}}>{assignHours.toFixed(1)}</b> ש' &nbsp;|&nbsp;
+            CRM: <b style={{color:'#475569'}}>{crmHours.toFixed(1)}</b> ש' &nbsp;|&nbsp;
+            סה"כ: <b style={{color:'var(--text)'}}>{totalHours.toFixed(1)}</b> ש'
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={doPrint} style={{padding:'5px 14px',fontSize:12,background:'var(--primary)',color:'#fff',border:'none',borderRadius:7,cursor:'pointer'}}>📄 הדפסה / PDF</button>
+            <button onClick={onClose} style={{padding:'5px 14px',fontSize:12,background:'transparent',color:'var(--text)',border:'1px solid #e2e8f0',borderRadius:7,cursor:'pointer'}}>סגור</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatsTab({instructors,activities,boats,availability,assignments,month,crmEvents=[]}){
   // Use the NEW schedule data: assignments[`schedule_${month}`] = array of items
   const rawSchedule = assignments[`schedule_${month}`];
   const schedule = Array.isArray(rawSchedule) ? rawSchedule : [];
@@ -5789,6 +5879,74 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
     setPopup({title,dateItems,lineKey,x:r.right+8,y:r.top});
   };
   const hidePopup=()=>setPopup(null);
+
+  const [exportModal,setExportModal]=React.useState(null);
+
+  const extractCrmName=(text)=>{
+    if(!text) return null;
+    const s=text.replace(/<[^>]*>/g,'');
+    const m=s.trim().match(/\(([^()]+)\)\s*\d*\s*$/);
+    return m?m[1].trim():null;
+  };
+  const extractCrmActivity=(text)=>{
+    if(!text) return '';
+    return text.replace(/<[^>]*>/g,' ').replace(/\([^()]+\)\s*\d*\s*$/,'').trim().replace(/\s+/g,' ');
+  };
+
+  const crmNameMap=React.useMemo(()=>{
+    const map={};
+    let manual={};
+    try{manual=JSON.parse(localStorage.getItem('crm_name_mapping')||'{}');}catch(e){}
+    instructors.forEach(inst=>{
+      map[inst.name]=inst.id;
+      const parts=inst.name.trim().split(/\s+/);
+      if(parts.length>=2) map[parts.slice().reverse().join(' ')]=inst.id;
+      if(parts.length===3){
+        map[[parts[1],parts[2],parts[0]].join(' ')]=inst.id;
+        map[[parts[2],parts[0],parts[1]].join(' ')]=inst.id;
+      }
+    });
+    Object.entries(manual).forEach(([crmName,instName])=>{
+      const inst=instructors.find(i=>i.name===instName);
+      if(inst) map[crmName]=inst.id;
+    });
+    return map;
+  },[instructors]);
+
+  const crmIdMap=React.useMemo(()=>{
+    const map={};
+    crmEvents.forEach(e=>{
+      if(!e.instructorId||!e.text) return;
+      const n=extractCrmName(e.text);
+      if(!n) return;
+      const id=crmNameMap[n];
+      if(id&&!map[e.instructorId]) map[e.instructorId]=id;
+    });
+    return map;
+  },[crmEvents,crmNameMap]);
+
+  const crmInstItems=React.useMemo(()=>{
+    const result={};
+    crmEvents.forEach(e=>{
+      if(!(e.startDate||'').startsWith(month)) return;
+      let instId=null;
+      const n=extractCrmName(e.text||'');
+      if(n) instId=crmNameMap[n]||null;
+      if(!instId&&e.instructorId) instId=crmIdMap[e.instructorId]||null;
+      if(!instId) return;
+      if(!result[instId]) result[instId]=[];
+      result[instId].push({
+        fullDate:e.startDate||'',
+        date:e.startDate?parseInt(e.startDate.slice(8),10):'',
+        startHour:e.startHour||'',
+        endHour:e.endHour||'',
+        activityName:extractCrmActivity(e.text||''),
+        source:'crm'
+      });
+    });
+    return result;
+  },[crmEvents,month,crmNameMap,crmIdMap]);
+
   const itemHours = (it) => it.startHour && it.endHour ? (timeToMin(it.endHour)-timeToMin(it.startHour))/60 : 0;
 
   const instStats = useMemo(()=>{
@@ -5803,7 +5961,9 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
       const utilization = ideal ? Math.round(totalHours/ideal*100) : null;
       // days worked this month
       const daysWorked = new Set(items.map(i => i.date).filter(Boolean)).size;
-      const instDateItems=items.filter(s=>s.date).map(s=>({date:s.date,activityName:s.activityName||'',startHour:s.startHour||'',endHour:s.endHour||''})).sort((a,b)=>Number(a.date)-Number(b.date));
+      const assignDateItems=items.filter(s=>s.date).map(s=>({fullDate:month+'-'+String(s.date).padStart(2,'0'),date:s.date,activityName:s.activityName||'',startHour:s.startHour||'',endHour:s.endHour||'',source:'assignment'}));
+      const crmForInst=crmInstItems[inst.id]||[];
+      const instDateItems=[...assignDateItems,...crmForInst].sort((a,b)=>String(a.fullDate).localeCompare(String(b.fullDate))||(a.startHour||'').localeCompare(b.startHour||''));
       return {id:inst.id, name:inst.name, priority:inst.priority||'medium', assignmentCount, totalHours, availSlots, workSlots, ideal, utilization, daysWorked, dateItems:instDateItems};
     }).sort((a,b) => b.totalHours - a.totalHours || a.name.localeCompare(b.name));
   },[instructors, schedule, availability, month]);
@@ -5869,7 +6029,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
         <div className="card">
           <h2 style={{marginBottom:12,fontSize:16}}>עומס מדריכים</h2>
           <table>
-            <thead><tr><th>מדריך</th><th>ימים</th><th>שיבוצים</th><th>שעות</th><th>ניצולת מול אידיאל</th></tr></thead>
+            <thead><tr><th>מדריך</th><th>ימים</th><th>שיבוצים</th><th>שעות</th><th>ניצולת מול אידיאל</th><th></th></tr></thead>
             <tbody>
               {instStats.map(s=>(
                 <tr key={s.id} style={{cursor:'default'}} onMouseEnter={e=>showPopup(e,s.name,s.dateItems,'activityName')} onMouseLeave={hidePopup}>
@@ -5886,6 +6046,9 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
                         </div>
                       </div>
                     ):<span style={{color:'var(--text-light)',fontSize:11}}>אין יעד</span>}
+                  </td>
+                  <td style={{textAlign:'center',paddingLeft:8}}>
+                    <button onMouseEnter={hidePopup} onClick={e=>{e.stopPropagation();setExportModal(s);}} style={{padding:'3px 10px',fontSize:11,background:'var(--primary)',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',whiteSpace:'nowrap'}}>📤 שלח</button>
                   </td>
                 </tr>
               ))}
@@ -5951,6 +6114,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month})
           </div>
         </div>
       );})()}
+      {exportModal&&<InstructorExportModal stat={exportModal} month={month} onClose={()=>setExportModal(null)}/>}
     </div>
   );
 }
