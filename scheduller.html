@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.31';
+const SCHEDULER_VERSION = 'v6.41';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -403,7 +403,35 @@ function App(){
   const [assignmentViewDate,setAssignmentViewDate]=useState(null);
   const [weeklyPlanIdx,setWeeklyPlanIdx]=useState(0);
   const [weeklyPlanShowWeekend,setWeeklyPlanShowWeekend]=useState(false);
-  const [katCourses,setKatCourses]=useState([{id:Date.now(),startDate:null,hour:9,startStage:1,assigned:false,instSel:{}}]);
+  const [katCourses,setKatCourses]=useState(()=>{
+    try{
+      const k=JSON.parse(localStorage.getItem('sch_kat_courses'));
+      if(k&&k.length&&k.some(c=>c.startDate||c.assigned)) return k;
+    }catch{}
+    // Retroactive reconstruction from assignments
+    try{
+      const asgn=JSON.parse(localStorage.getItem('sch_assignments')||'{}');
+      const allItems=Object.values(asgn).flat().filter(i=>i&&i.source==='katmandu_wizard'&&i._katCourseId);
+      if(allItems.length){
+        const byId={};
+        allItems.forEach(item=>{
+          const cid=item._katCourseId;
+          if(!byId[cid]) byId[cid]=[];
+          byId[cid].push(item);
+        });
+        return Object.entries(byId).map(([cid,items])=>{
+          const startDate=Math.min(...items.map(i=>i.date||99));
+          const hour=parseInt((items[0].startHour||'09:00').slice(0,2),10);
+          const m=(items[0].activityName||'').match(/(\d+)$/);
+          const firstStage=m?Math.max(1,parseInt(m[1],10)-(items.findIndex(i=>i.date===startDate)||0)):1;
+          const instSel={};
+          items.forEach(i=>{if(i.date&&i.instructorId) instSel[i.date]=i.instructorId;});
+          return {id:Number(cid)||Date.now(),startDate,hour,startStage:Math.max(1,Math.min(5,firstStage)),assigned:true,instSel};
+        });
+      }
+    }catch{}
+    return [{id:Date.now(),startDate:null,hour:9,startStage:1,assigned:false,instSel:{}}];
+  });
   const [instructors,setInstructors]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('sch_instructors'))||[];}catch{return [];}
   });
@@ -491,6 +519,7 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('sch_availability',JSON.stringify(availability));}catch{}},[availability]);
   useEffect(()=>{try{localStorage.setItem('sch_assignments',JSON.stringify(assignments));}catch{}},[assignments]);
   useEffect(()=>{try{localStorage.setItem('sch_weekly_selections',JSON.stringify(weeklySelections));}catch{}},[weeklySelections]);
+  useEffect(()=>{try{localStorage.setItem('sch_kat_courses',JSON.stringify(katCourses));}catch{}},[katCourses]);
   useEffect(()=>{try{localStorage.setItem('sch_selected_month',month);}catch{}},[month]);
   useEffect(()=>{try{localStorage.setItem('sch_boats',JSON.stringify(boats));}catch{}},[boats]);
   useEffect(()=>{
@@ -614,6 +643,7 @@ function App(){
                     if(d.availability)setAvailability(p=>({...p,...d.availability}));
                     if(d.assignments)setAssignments(p=>({...p,...d.assignments}));
                     if(d.weeklySelections)setWeeklySelections(p=>({...p,...d.weeklySelections}));
+                    if(d.katCourses)setKatCourses(d.katCourses);
                   }
                   const counts=[];
                   if(d.instructors) counts.push(`${d.instructors.length} מדריכים`);
@@ -5778,6 +5808,61 @@ function ManualEntryDialog({month, boats, instructors, activities, onCancel, onA
 }
 
 
+function generateICS(stat,month){
+  var HMONTHS=["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+  var mn=parseInt(month.slice(5,7),10);
+  var mname=HMONTHS[mn-1]||month;
+  function pad2(n){return String(n).padStart(2,"0");}
+  function toISO(date,hour){
+    if(!date||!hour) return null;
+    return date.replace(/-/g,"")+"T"+hour.replace(":","")+"00";
+  }
+  var now=new Date();
+  var dtstamp=now.getUTCFullYear()+pad2(now.getUTCMonth()+1)+pad2(now.getUTCDate())+"T"+pad2(now.getUTCHours())+pad2(now.getUTCMinutes())+pad2(now.getUTCSeconds())+"Z";
+  var lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Sailing School//Scheduler//EN","CALSCALE:GREGORIAN","METHOD:PUBLISH"];
+  (stat.dateItems||[]).forEach(function(it,idx){
+    var ds=toISO(it.fullDate,it.startHour);
+    var de=toISO(it.fullDate,it.endHour);
+    if(!ds||!de) return;
+    var uid="sch-"+(stat.id||"x")+"-"+idx+"-"+now.getTime()+"@scheduler";
+    var summary=(it.activityName||"פעילות").replace(/[,;\\]/g," ");
+    var desc=mname+" "+month.slice(0,4)+" - "+stat.name;
+    lines.push("BEGIN:VEVENT");
+    lines.push("UID:"+uid);
+    lines.push("DTSTAMP:"+dtstamp);
+    lines.push("DTSTART:"+ds);
+    lines.push("DTEND:"+de);
+    lines.push("SUMMARY:"+summary);
+    lines.push("DESCRIPTION:"+desc);
+    lines.push("END:VEVENT");
+  });
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n");
+}
+
+function generateWhatsAppText(stat,month){
+  var HMONTHS=["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+  var mn=parseInt(month.slice(5,7),10);
+  var mname=HMONTHS[mn-1]||month;
+  var DOW=["א'","ב'","ג'","ד'","ה'","ו'","ש'"];
+  var lines=[
+    "היי "+stat.name+", זאת רשימת הפעילויות שלך לחודש "+mname+".",
+    "אפשר ללחוץ על הקובץ המצורף כדי להעלות את כל הפעילויות ליומן האישי.",
+    ""
+  ];
+  (stat.dateItems||[]).forEach(function(it){
+    if(!it.fullDate) return;
+    try{
+      var d=new Date(it.fullDate);
+      var dow=DOW[d.getDay()];
+      var dd=String(it.date||"").padStart(2,"0");
+      var mm=month.slice(5,7);
+      var hours=(it.startHour||"")+(it.endHour?"–"+it.endHour:"");
+      lines.push(dow+" - "+dd+"/"+mm+" - "+hours+" - "+(it.activityName||""));
+    }catch(ex){}
+  });
+  return lines.join("\n");
+}
 function InstructorExportModal({stat,month,onClose}){
   const items=stat.dateItems||[];
   const assignItems=items.filter(i=>i.source==='assignment');
@@ -5790,6 +5875,31 @@ function InstructorExportModal({stat,month,onClose}){
   const fmtDate=(fullDate,day)=>{
     if(fullDate){try{const d=new Date(fullDate);const dow=['א','ב','ג','ד','ה','ו','ש'][d.getDay()];return String(day||'').padStart(2,'0')+'/'+month.slice(5,7)+' יום '+dow;}catch(ex){}}
     return String(day||'').padStart(2,'0')+'/'+month.slice(5,7);
+  };
+  const doICS=()=>{
+    const content=generateICS(stat,month);
+    const blob=new Blob([content],{type:"text/calendar;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=(stat.name||"instructor").replace(/\s+/g,"_")+"_"+month+".ics";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+  const doWhatsApp=()=>{
+    const raw=(stat.phone||"").replace(/\D/g,"");
+    const intlPhone=raw.startsWith("0")?"972"+raw.slice(1):raw;
+    const text=generateWhatsAppText(stat,month);
+    if(intlPhone) window.open("https://wa.me/"+intlPhone+"?text="+encodeURIComponent(text),"_blank");
+    else alert("אין מספר טלפון למדריך זה");
+    doICS();
+  };
+  const doEmail=()=>{
+    const subject=encodeURIComponent('שיבוצים '+stat.name+' - '+month);
+    const body=encodeURIComponent(generateWhatsAppText(stat,month));
+    const to=stat.email||'';
+    const a=document.createElement("a");
+    a.href='mailto:'+to+'?subject='+subject+'&body='+body;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    doICS();
   };
   const doPrint=()=>{
     const rows=items.map(it=>'<tr><td>'+fmtDate(it.fullDate,it.date)+'</td><td dir="ltr">'+
@@ -5858,6 +5968,9 @@ function InstructorExportModal({stat,month,onClose}){
             סה"כ: <b style={{color:'var(--text)'}}>{totalHours.toFixed(1)}</b> ש'
           </div>
           <div style={{display:'flex',gap:8}}>
+            <button onClick={doICS} style={{padding:'5px 14px',fontSize:12,background:'#0f6e56',color:'#fff',border:'none',borderRadius:7,cursor:'pointer'}}>📅 הורד ICS</button>
+            <button onClick={doWhatsApp} style={{padding:'5px 14px',fontSize:12,background:'#25d366',color:'#fff',border:'none',borderRadius:7,cursor:'pointer'}}>📱 WhatsApp</button>
+            <button onClick={doEmail} style={{padding:'5px 14px',fontSize:12,background:'#3b82f6',color:'#fff',border:'none',borderRadius:7,cursor:'pointer'}}>✉️ מייל</button>
             <button onClick={doPrint} style={{padding:'5px 14px',fontSize:12,background:'var(--primary)',color:'#fff',border:'none',borderRadius:7,cursor:'pointer'}}>📄 הדפסה / PDF</button>
             <button onClick={onClose} style={{padding:'5px 14px',fontSize:12,background:'transparent',color:'var(--text)',border:'1px solid #e2e8f0',borderRadius:7,cursor:'pointer'}}>סגור</button>
           </div>
@@ -5964,7 +6077,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month,c
       const assignDateItems=items.filter(s=>s.date).map(s=>({fullDate:month+'-'+String(s.date).padStart(2,'0'),date:s.date,activityName:s.activityName||'',startHour:s.startHour||'',endHour:s.endHour||'',source:'assignment'}));
       const crmForInst=crmInstItems[inst.id]||[];
       const instDateItems=[...assignDateItems,...crmForInst].sort((a,b)=>String(a.fullDate).localeCompare(String(b.fullDate))||(a.startHour||'').localeCompare(b.startHour||''));
-      return {id:inst.id, name:inst.name, priority:inst.priority||'medium', assignmentCount, totalHours, availSlots, workSlots, ideal, utilization, daysWorked, dateItems:instDateItems};
+      return {id:inst.id, name:inst.name, phone:inst.phone||'', email:inst.email||'', priority:inst.priority||'medium', assignmentCount, totalHours, availSlots, workSlots, ideal, utilization, daysWorked, dateItems:instDateItems};
     }).sort((a,b) => b.totalHours - a.totalHours || a.name.localeCompare(b.name));
   },[instructors, schedule, availability, month]);
 
@@ -7264,40 +7377,48 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     const weeks=[];let wk=[];
     for(let i=1;i<=dim;i++){const dow=new Date(yr,moN-1,i).getDay();if(dow===0&&wk.length>0){weeks.push(wk);wk=[];}wk.push(i);}
     if(wk.length)weeks.push(wk);
+    // ימי חול = ראשון-חמישי (0-4), סופ"ש = שישי-שבת
+    const isWeekday=d=>new Date(yr,moN-1,d).getDay()<=4;
+    // מכנה קבוע: סך ימי חול בחודש (לא משתנה משבוע לשבוע)
+    const totalWeekdays=weeks.flat().filter(isWeekday).length;
     const curWeekIdx=Math.max(0,weeks.findIndex(w=>w.includes(selDate)));
     const curWeek=weeks[curWeekIdx];
     const weekDateSet=new Set(curWeek);
-    const prevDateSet=new Set(weeks.slice(0,curWeekIdx).flat());
-    // ימי חול = ראשון-חמישי (0-4)
-    const isWeekday=d=>new Date(yr,moN-1,d).getDay()<=4;
-    // Weekdays from current week onward (for division — avoids rounding loss)
-    const remainingWeekdays=weeks.slice(curWeekIdx).flat().filter(isWeekday).length;
-    const weekdaysThisWeek=curWeek.filter(isWeekday).length;
+    // ימי חול מצטברים עד סוף השבוע הנוכחי (כולל)
+    const cumWeekdays=weeks.slice(0,curWeekIdx+1).flat().filter(isWeekday).length;
     const schedArr=Array.isArray(rawSched)?rawSched:[];
-    const actDonePrev={},actDoneThis={},typeDoneExtraThis={};
-    const nm=s=>(s||'').replace(/["\u05f4]/g,'');
+    const nm=s=>(s||'').replace(/["״]/g,'');
+    // ספירה לכל פעילות: שיבוצי ימי חול בשבועות קודמים, שיבוצי שבוע זה, שיבוצי סופ"ש בכל החודש
+    const actWeekdayPrev={},actDoneThis={},actWeekend={},typeDoneExtraThis={};
     schedArr.forEach(s=>{
-      if(prevDateSet.has(s.date)){
-        if(s.activityId)actDonePrev[s.activityId]=(actDonePrev[s.activityId]||0)+1;
-      }
-      if(weekDateSet.has(s.date)){
-        if(s.activityId)actDoneThis[s.activityId]=(actDoneThis[s.activityId]||0)+1;
-        else if(s.boatType){
-          const t=TYPE_ORDER.find(tt=>nm(tt)===nm(s.boatType))||s.boatType;
-          typeDoneExtraThis[t]=(typeDoneExtraThis[t]||0)+1;
-        }
+      const weekOfDay=weeks.findIndex(w=>w.includes(s.date));
+      const onWeekday=isWeekday(s.date);
+      if(s.activityId){
+        if(weekOfDay>=0&&weekOfDay<curWeekIdx&&onWeekday)
+          actWeekdayPrev[s.activityId]=(actWeekdayPrev[s.activityId]||0)+1;
+        if(weekDateSet.has(s.date))
+          actDoneThis[s.activityId]=(actDoneThis[s.activityId]||0)+1;
+        if(!onWeekday)
+          actWeekend[s.activityId]=(actWeekend[s.activityId]||0)+1;
+      } else if(s.boatType&&weekDateSet.has(s.date)){
+        const t=TYPE_ORDER.find(tt=>nm(tt)===nm(s.boatType))||s.boatType;
+        typeDoneExtraThis[t]=(typeDoneExtraThis[t]||0)+1;
       }
     });
     const byType={};
     activities.forEach(a=>{
       const monthly=Number(a.totalPerMonth)||0;
       if(!monthly)return;
-      const donePrev=actDonePrev[a.id]||0;
+      // מכסת ימי חול = סה"כ חודשי פחות שיבוצי סופ"ש
+      const weekendDone=actWeekend[a.id]||0;
+      const weekdayPool=Math.max(0,monthly-weekendDone);
+      const weekdayDonePrev=actWeekdayPrev[a.id]||0;
       const doneThis=actDoneThis[a.id]||0;
-      const remInMonth=Math.max(0,monthly-donePrev);
-      // Divide by remainingWeekdays so rounding errors don't accumulate across weeks
-      const weeklyTarget=remainingWeekdays>0?Math.round(remInMonth/remainingWeekdays*weekdaysThisWeek):0;
-      const remaining=weeklyTarget-doneThis; // can go negative = over-scheduled
+      // יעד מצטבר עד סוף השבוע הנוכחי: round(מכסת_חול * ימי_חול_מצטברים / סך_ימי_חול)
+      // פחות מה שכבר בוצע בשבועות קודמים = יעד שבוע זה (carryover אוטומטי)
+      const cumulativeTarget=totalWeekdays>0?Math.round(weekdayPool*cumWeekdays/totalWeekdays):0;
+      const weeklyTarget=Math.max(0,cumulativeTarget-weekdayDonePrev);
+      const remaining=weeklyTarget-doneThis; // שלילי = שיבצנו יותר מהיעד
       const types=a.allowedBoatTypes||[];
       const ids=a.allowedBoatIds||[];
       const typeSet=new Set(types);
@@ -7307,7 +7428,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
         const nk=TYPE_ORDER.find(tt=>nm(tt)===nm(t))||t;
         if(!byType[nk])byType[nk]={weeklyTotal:0,doneAll:0,acts:[],extraDone:0};
         byType[nk].weeklyTotal+=weeklyTarget;
-        byType[nk].doneAll+=doneThis; // no cap — allows negative remaining
+        byType[nk].doneAll+=doneThis;
         byType[nk].acts.push({id:a.id,name:a.name,total:weeklyTarget,done:doneThis,remaining});
       });
     });
@@ -7570,57 +7691,47 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
 // ═══════════════════════════════════════════════════════════════════════════
 function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,availability,assignments,setAssignments,month,showToast}){
   const SLOTS=[
-    {label:'07–10',boatStart:'07:00',boatEnd:'10:00',classStart:'06:00',classEnd:'07:00'},
     {label:'10–13',boatStart:'10:00',boatEnd:'13:00',classStart:'09:00',classEnd:'10:00'},
     {label:'13–16',boatStart:'13:00',boatEnd:'16:00',classStart:'12:00',classEnd:'13:00'},
     {label:'16–19',boatStart:'16:00',boatEnd:'19:00',classStart:'15:00',classEnd:'16:00'},
   ];
   const CLASSROOMS=['מגלן','כיתה 3'];
-
   const [y,mNum]=month.split('-').map(Number);
-
   const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמרן')||null,[activities]);
   const wasthiBoat=React.useMemo(()=>boats.find(b=>b.name==='ושתי')||null,[boats]);
   const wasthiRoomId=React.useMemo(()=>{
     if(!wasthiBoat)return null;
     return Object.entries(roomBoatMap||{}).find(([,bId])=>bId===wasthiBoat.id)?.[0]||null;
   },[wasthiBoat,roomBoatMap]);
-
-  // All valid start dates: exclude Fri (day 2 would be Sat) and last day if it overflows
   const validDates=React.useMemo(()=>{
     const dim=new Date(y,mNum,0).getDate();
     const res=[];
     for(let i=1;i<=dim;i++){
       const dow=new Date(y,mNum-1,i).getDay();
-      if(dow===5)continue; // Fri → day 2 = Sat: forbidden
+      if(dow===5||dow===6)continue;
       const d2=new Date(y,mNum-1,i+1);
-      if(d2.getMonth()!==mNum-1)continue; // day 2 overflows month
+      if(d2.getMonth()!==mNum-1)continue;
       res.push({date:i,dow,dayName:DAYS_HEB[dow]});
     }
     return res;
   },[month]);
-
   const getDay2=(d1)=>{
     const d=new Date(y,mNum-1,d1+1);
     if(d.getMonth()!==mNum-1)return null;
     return{date:d.getDate(),dow:d.getDay(),dayName:DAYS_HEB[d.getDay()]};
   };
-
   const initDate=validDates[0]?.date||0;
-  const [courses,setCourses]=React.useState([{id:1,startDate:initDate,slotIdx:1,classroom:'מגלן'}]);
+  const [courses,setCourses]=React.useState([{id:1,startDate:initDate,slotIdx:0,classroom:'מגלן'}]);
   const nextId=React.useRef(2);
-
-  const addCourse=()=>{const id=nextId.current++;setCourses(p=>[...p,{id,startDate:initDate,slotIdx:1,classroom:'מגלן'}]);};
+  const [showOpts,setShowOpts]=React.useState({});
+  const addCourse=()=>{const id=nextId.current++;setCourses(p=>[...p,{id,startDate:initDate,slotIdx:0,classroom:'מגלן'}]);};
   const removeCourse=(id)=>setCourses(p=>p.filter(c=>c.id!==id));
   const upd=(id,f,v)=>setCourses(p=>p.map(c=>c.id===id?{...c,[f]:v}:c));
-
-  // ושתי availability check
   const isBoatAvail=(dayNum,slot)=>{
-    if(!wasthiBoat)return null; // unknown
+    if(!wasthiBoat)return null;
     const [bH]=slot.boatStart.split(':').map(Number);
     const [eH]=slot.boatEnd.split(':').map(Number);
     const slotS=bH*60,slotE=eH*60;
-    // CRM events
     if(wasthiRoomId){
       const busy=(crmEvents||[]).some(e=>{
         if(!e.startDate)return false;
@@ -7633,7 +7744,6 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
       });
       if(busy)return false;
     }
-    // Existing assignments
     const sched=assignments[`schedule_${month}`]||[];
     const busy2=sched.some(s=>{
       if(s.boatId!==wasthiBoat.id||s.date!==dayNum||!s.startHour)return false;
@@ -7643,8 +7753,6 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
     });
     return!busy2;
   };
-
-  // Instructor: available full 4h block (classStart–boatEnd) both days, qualified קטמרן
   const isInstAvail=(inst,dayNum,slot)=>{
     const av=(availability&&availability[`${inst.id}_${month}`])||{};
     const[sH]=slot.classStart.split(':').map(Number);
@@ -7655,15 +7763,28 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
     return true;
   };
   const isQual=(inst)=>(inst.skills||[]).includes('קטמרן');
-
-  const getInsts=(d1,d2,slot)=>{
-    if(!d2)return{both:[],onlyD1:[],onlyD2:[]};
-    const both=instructors.filter(i=>isQual(i)&&isInstAvail(i,d1,slot)&&isInstAvail(i,d2.date,slot));
-    const onlyD1=instructors.filter(i=>isQual(i)&&isInstAvail(i,d1,slot)&&!isInstAvail(i,d2.date,slot));
-    const onlyD2=instructors.filter(i=>isQual(i)&&!isInstAvail(i,d1,slot)&&isInstAvail(i,d2.date,slot));
+  const getInsts=(d1,d2obj,slot)=>{
+    if(!d2obj)return{both:[],onlyD1:[],onlyD2:[]};
+    const both=instructors.filter(i=>isQual(i)&&isInstAvail(i,d1,slot)&&isInstAvail(i,d2obj.date,slot));
+    const onlyD1=instructors.filter(i=>isQual(i)&&isInstAvail(i,d1,slot)&&!isInstAvail(i,d2obj.date,slot));
+    const onlyD2=instructors.filter(i=>isQual(i)&&!isInstAvail(i,d1,slot)&&isInstAvail(i,d2obj.date,slot));
     return{both,onlyD1,onlyD2};
   };
-
+  const allOpts=React.useMemo(()=>{
+    const opts=[];
+    validDates.forEach(({date:d1,dow,dayName:dn1})=>{
+      const d2info=getDay2(d1);
+      if(!d2info)return;
+      SLOTS.forEach((slot,si)=>{
+        const ok1=isBoatAvail(d1,slot);
+        const ok2=isBoatAvail(d2info.date,slot);
+        if(ok1===false||ok2===false)return;
+        const{both}=getInsts(d1,d2info,slot);
+        if(both.length>0)opts.push({d1,dn1,d2:d2info,slot,slotIdx:si,insts:both});
+      });
+    });
+    return opts;
+  },[validDates,assignments,month,wasthiBoat,wasthiRoomId,crmEvents,instructors,availability]);
   const generateAssignments=(course)=>{
     if(!katAct){showToast('לא נמצאה פעילות קטמרן');return;}
     if(!wasthiBoat){showToast('לא נמצאה סירת ושתי');return;}
@@ -7679,26 +7800,19 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
     const newItems=[{d:course.startDate,dow:new Date(y,mNum-1,course.startDate).getDay()},{d:day2.date,dow:day2.dow}].map(({d,dow},i)=>({
       id:`kata_${course.id}_${d}_${now+i}`,
       _kataCourseId:course.id,
-      activityId:katAct.id,
-      activityName:'קטמרן',
-      boatId:wasthiBoat.id,
-      boatName:wasthiBoat.name,
-      boatType:wasthiBoat.type||'קטמרן',
+      activityId:katAct.id,activityName:'קטמרן',
+      boatId:wasthiBoat.id,boatName:wasthiBoat.name,boatType:wasthiBoat.type||'קטמרן',
       date:d,dayOfWeek:dow,
-      startHour:slot.classStart,
-      endHour:slot.boatEnd,
-      instructorId:inst?.id||null,
-      instructorName:inst?.name||null,
+      startHour:slot.classStart,endHour:slot.boatEnd,
+      instructorId:inst?.id||null,instructorName:inst?.name||null,
       extraInstructors:[],instructorsNeeded:1,
-      missingInstructors:inst?0:1,
-      status:inst?'assigned':'no_instructor',
+      missingInstructors:inst?0:1,status:inst?'assigned':'no_instructor',
       source:'katamaran_wizard',
     }));
     setAssignments(prev=>({...prev,[key]:[...existing,...newItems]}));
     showToast(`✓ נוצרו 2 שיבוצים לקורס קטמרן ${course.id}`);
   };
-
-  const DayBlock=({dayNum,dayName,slot,label,isD2Ready=true})=>{
+  const DayBlock=({dayNum,dayName,slot,label,classroom,isD2Ready=true})=>{
     const boatOk=isBoatAvail(dayNum,slot);
     return(
       <div style={{border:'0.5px solid var(--border)',borderRadius:8,padding:'7px 9px',marginBottom:7,opacity:isD2Ready?1:0.4}}>
@@ -7711,7 +7825,7 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
           <>
             <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,marginBottom:3}}>
               <span style={{width:6,height:6,borderRadius:'50%',background:'#94a3b8',display:'inline-block',flexShrink:0}}/>
-              <span style={{color:'var(--text-light)'}}>כיתה — לא מנוהלת במערכת</span>
+              <span style={{color:'var(--text-light)'}}>כיתה — {classroom||'לא נבחרה'}</span>
             </div>
             {boatOk===null?null:boatOk?(
               <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11}}>
@@ -7729,7 +7843,6 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
       </div>
     );
   };
-
   return(
     <div style={{direction:'rtl',padding:16}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
@@ -7739,9 +7852,8 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
         </span>}
       </div>
       <div style={{fontSize:12,color:'var(--text-light)',marginBottom:14}}>
-        סלוטים: 07–10 / 10–13 / 13–16 / 16–19. כיתה = שעה שלפני. אותו מדריך חייב להיות זמין בשני הימים.
+        סלוטים: 10–13 / 13–16 / 16–19. כיתה = שעה שלפני. אותו מדריך חייב להיות זמין בשני הימים.
       </div>
-
       <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'flex-start'}}>
         {courses.map((course,ci)=>{
           const slot=SLOTS[course.slotIdx];
@@ -7751,13 +7863,60 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
           const boatOk2=day2?isBoatAvail(day2.date,slot):null;
           const canProceed=boatOk1!==false&&boatOk2!==false;
           const{both,onlyD1,onlyD2}=course.startDate&&day2?getInsts(course.startDate,day2,slot):{both:[],onlyD1:[],onlyD2:[]};
+          const isOpen=showOpts[course.id];
           return(
-            <div key={course.id} style={{background:'var(--card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',flex:'1 1 230px',maxWidth:290}}>
+            <div key={course.id} style={{background:'var(--card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',flex:'1 1 230px',maxWidth:310}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
                 <span style={{fontWeight:500,fontSize:13}}>קורס {ci+1}</span>
                 {courses.length>1&&<button onClick={()=>removeCourse(course.id)} style={{background:'none',border:'none',color:'var(--danger,#dc2626)',cursor:'pointer',fontSize:18,lineHeight:1,padding:0}}>✕</button>}
               </div>
-
+              <button onClick={()=>setShowOpts(prev=>({...prev,[course.id]:!prev[course.id]}))}
+                style={{width:'100%',marginBottom:8,padding:'5px 10px',borderRadius:6,border:'1px solid var(--border)',background:isOpen?'var(--primary,#2563eb)':'var(--bg-secondary,#f3f4f6)',color:isOpen?'#fff':'var(--text)',fontSize:11,cursor:'pointer',fontWeight:500}}>
+                {isOpen?'▲ הסתר אפשרויות':`▼ הצג כל האפשרויות (${allOpts.length})`}
+              </button>
+              {isOpen&&(
+                <div style={{marginBottom:10,maxHeight:220,overflowY:'auto',border:'0.5px solid var(--border)',borderRadius:6}}>
+                  {allOpts.length===0?(
+                    <div style={{padding:12,fontSize:11,color:'#dc2626',textAlign:'center'}}>אין אפשרויות זמינות</div>
+                  ):(
+                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                      <thead style={{position:'sticky',top:0,background:'var(--bg-secondary,#f3f4f6)'}}>
+                        <tr>
+                          <th style={{padding:'4px 6px',textAlign:'right',fontWeight:600,borderBottom:'0.5px solid var(--border)',fontSize:10}}>יום 1</th>
+                          <th style={{padding:'4px 6px',textAlign:'right',fontWeight:600,borderBottom:'0.5px solid var(--border)',fontSize:10}}>סלוט</th>
+                          <th style={{padding:'4px 6px',textAlign:'right',fontWeight:600,borderBottom:'0.5px solid var(--border)',fontSize:10}}>מדריכים</th>
+                          <th style={{padding:'4px 4px',borderBottom:'0.5px solid var(--border)'}}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allOpts.map((opt,oi)=>(
+                          <tr key={oi} style={{borderBottom:'0.5px solid #f1f5f9',cursor:'pointer'}}
+                            onMouseEnter={e=>e.currentTarget.style.background='#f0f9ff'}
+                            onMouseLeave={e=>e.currentTarget.style.background=''}
+                            onClick={()=>{
+                              upd(course.id,'startDate',opt.d1);
+                              upd(course.id,'slotIdx',opt.slotIdx);
+                              setShowOpts(prev=>({...prev,[course.id]:false}));
+                            }}>
+                            <td style={{padding:'4px 6px',fontWeight:500,whiteSpace:'nowrap'}}>{opt.dn1} {opt.d1}/{mNum.toString().padStart(2,'0')}</td>
+                            <td style={{padding:'4px 6px',whiteSpace:'nowrap'}}>{opt.slot.label}</td>
+                            <td style={{padding:'4px 6px'}}>
+                              <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
+                                {opt.insts.map(i=>(
+                                  <span key={i.id} style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'#dcfce7',color:'#15803d',fontWeight:500,whiteSpace:'nowrap'}}>
+                                    {i.name.split(' ')[0]}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td style={{padding:'4px 6px',color:'var(--primary)',fontSize:11,whiteSpace:'nowrap'}}>בחר ›</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
               <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 8px',alignItems:'center',fontSize:12,marginBottom:10}}>
                 <span style={{fontSize:11,color:'var(--text-light)'}}>יום 1</span>
                 <select value={course.startDate||''} onChange={e=>upd(course.id,'startDate',Number(e.target.value))}
@@ -7776,10 +7935,8 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
                   {CLASSROOMS.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
-
-              {course.startDate&&d1info&&<DayBlock dayNum={course.startDate} dayName={d1info.dayName} slot={slot} label="יום 1"/>}
-              {day2&&<DayBlock dayNum={day2.date} dayName={day2.dayName} slot={slot} label="יום 2" isD2Ready={boatOk1!==false}/>}
-
+              {course.startDate&&d1info&&<DayBlock dayNum={course.startDate} dayName={d1info.dayName} slot={slot} label="יום 1" classroom={course.classroom}/>}
+              {day2&&<DayBlock dayNum={day2.date} dayName={day2.dayName} slot={slot} label="יום 2" classroom={course.classroom} isD2Ready={boatOk1!==false}/>}
               <div style={{borderTop:'0.5px solid var(--border)',paddingTop:6,marginTop:2}}>
                 {both.length>0?(
                   <>
@@ -7800,7 +7957,6 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
                   </>
                 )}
               </div>
-
               <button onClick={()=>generateAssignments(course)}
                 disabled={!canProceed||both.length===0}
                 style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:canProceed&&both.length>0?'pointer':'default',width:'100%',marginTop:8,opacity:canProceed&&both.length>0?1:0.35}}>
@@ -7809,7 +7965,6 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
             </div>
           );
         })}
-
         <div style={{flex:'0 0 auto',display:'flex',alignItems:'flex-start',paddingTop:4}}>
           <button onClick={addCourse}
             style={{padding:'8px 14px',borderRadius:8,border:'1px dashed var(--border)',background:'transparent',color:'var(--text-light)',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>
@@ -7827,35 +7982,24 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
 function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast,katCourses,setKatCourses}){
   const courses=katCourses;
   const setCourses=setKatCourses;
-  const nextId=React.useRef(Math.max(...katCourses.map(c=>c.id))+1);
-
   const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמנדו')||null,[activities]);
-  const katBoat=React.useMemo(()=>boats.find(b=>b.name==='קטמנדו')||null,[boats]);
-
+  const classroomBoats=React.useMemo(()=>boats.filter(b=>b.name==='כיתה 3'||b.name==='מגלן'),[boats]);
   const [y,mNum]=month.split('-').map(Number);
-
-  // All month dates with day names
-  const allMonthDates=React.useMemo(()=>{
-    const DOW_HE=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
-    const arr=[];
-    const dt=new Date(y,mNum-1,1);
+  const allWeekdayDates=React.useMemo(()=>{
+    const DOW_HE=['ראשון','שני','שלישי','רביעי','חמישי'];
+    const arr=[];const dt=new Date(y,mNum-1,1);
     while(dt.getMonth()===mNum-1){
-      arr.push({date:dt.getDate(),dow:dt.getDay(),dowName:DOW_HE[dt.getDay()]});
+      const dow=dt.getDay();
+      if(dow<=4) arr.push({date:dt.getDate(),dow,dowName:DOW_HE[dow]});
       dt.setDate(dt.getDate()+1);
     }
     return arr;
   },[y,mNum]);
-
-  // Dates from startDate onward sharing the same day-of-week
-  const getDatesFromStart=(startDate)=>{
-    if(!startDate) return [];
-    const startEntry=allMonthDates.find(e=>e.date===startDate);
-    if(!startEntry) return [];
-    const dow=startEntry.dow;
-    return allMonthDates.filter(e=>e.date>=startDate&&e.dow===dow).map(e=>e.date);
-  };
-
-  // Check instructor available for 3 consecutive hours starting at `hour` on day `dayNum`
+  const dowGroups=React.useMemo(()=>{
+    const m={};
+    allWeekdayDates.forEach(e=>{if(!m[e.dow])m[e.dow]=[];m[e.dow].push(e.date);});
+    return m;
+  },[allWeekdayDates]);
   const isAvail3h=(inst,dayNum,hour)=>{
     const av=availability[`${inst.id}_${month}`]||{};
     for(let h=hour;h<hour+3;h++){
@@ -7864,116 +8008,108 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
     }
     return true;
   };
-
-  // Check qualified: has 'קטמנדו' in skills
-  const isQual=(inst)=>(inst.skills||[]).includes('קטמנדו');
-
-  const DOW_NAMES=['ראשון','שני','שלישי','רביעי','חמישי'];
+  const isQual=inst=>(inst.skills||[]).includes('קטמנדו');
+  const getCourseDates=(course)=>{
+    if(!course.startDate) return [];
+    const entry=allWeekdayDates.find(e=>e.date===course.startDate);
+    if(!entry) return [];
+    return (dowGroups[entry.dow]||[]).filter(d=>d>=course.startDate).slice(0,6-course.startStage);
+  };
+  const scheduledByKatId=React.useMemo(()=>{
+    const map={};
+    (assignments['schedule_'+month]||[]).forEach(item=>{
+      if(!item._katCourseId) return;
+      if(!map[item._katCourseId]) map[item._katCourseId]={};
+      map[item._katCourseId][item.date]={instId:item.instructorId||null,instName:item.instructorName||null};
+    });
+    return map;
+  },[assignments,month]);
   const STAGE_COLORS=['','#EEEDFE','#E1F5EE','#FAECE7','#FAEEDA','#E6F1FB'];
   const STAGE_TEXT=['','#3C3489','#085041','#712B13','#633806','#0C447C'];
-
-  const addCourse=()=>{
-    const id=Date.now();
-    setCourses(prev=>[...prev,{id,startDate:null,hour:9,startStage:1,assigned:false,instSel:{}}]);
-  };
-  const removeCourse=(id)=>setCourses(prev=>prev.filter(c=>c.id!==id));
+  const addCourse=()=>{const id=Date.now();setCourses(prev=>[...prev,{id,startDate:null,hour:9,startStage:1,classroomBoatId:classroomBoats[0]?.id||null,assigned:false,instSel:{}}]);};
+  const removeCourse=id=>setCourses(prev=>prev.filter(c=>c.id!==id));
   const upd=(id,field,val)=>setCourses(prev=>prev.map(c=>c.id===id?{...c,[field]:val}:c));
   const updInstSel=(cid,date,instId)=>setCourses(prev=>prev.map(c=>c.id===cid?{...c,assigned:false,instSel:{...(c.instSel||{}),[date]:instId}}:c));
-
   const generateAssignments=(course)=>{
-    if(!katAct){showToast('לא נמצאה פעילות קטמנדו — בדוק בלשונית פעילויות');return;}
-    if(!katBoat){showToast('לא נמצאה סירת קטמנדו — בדוק בלשונית ספינות');return;}
+    if(!katAct){showToast('לא נמצאה פעילות קטמנדו');return;}
     if(!course.startDate){showToast('בחר תאריך התחלה');return;}
-    const dates=getDatesFromStart(course.startDate).slice(0,6-course.startStage);
-    const startEntry=allMonthDates.find(e=>e.date===course.startDate);
-    const courseDow=startEntry?startEntry.dow:0;
-    const key=`schedule_${month}`;
+    const dates=getCourseDates(course);
+    if(!dates.length){showToast('אין ימים תואמים');return;}
+    const entry=allWeekdayDates.find(e=>e.date===course.startDate);
+    const classroomBoat=boats.find(b=>b.id===course.classroomBoatId)||classroomBoats[0]||null;
+    const key='schedule_'+month;
     const existing=(assignments[key]||[]).filter(a=>a._katCourseId!==course.id);
     const now=Date.now();
     const newItems=dates.map((d,i)=>{
       const stage=Math.min(course.startStage+i,5);
       const selInstId=(course.instSel||{})[d]||null;
-      const inst=selInstId?instructors.find(i=>i.id===selInstId)||null:null;
+      const inst=selInstId?instructors.find(x=>x.id===selInstId)||null:null;
       return{
-        id:`kat_${course.id}_${d}_${now+i}`,
-        _katCourseId:course.id,
-        activityId:katAct.id,
-        activityName:`קטמנדו ${stage}`,
-        boatId:katBoat.id,
-        boatName:katBoat.name,
-        boatType:katBoat.type||'קטמנדו',
-        date:d,
-        dayOfWeek:courseDow,
+        id:`kat_${course.id}_${d}_${now+i}`,_katCourseId:course.id,
+        activityId:katAct.id,activityName:`קטמנדו ${stage}`,
+        boatId:classroomBoat?.id||null,boatName:classroomBoat?.name||'כיתה 3',boatType:classroomBoat?.type||'',
+        date:d,dayOfWeek:entry?.dow||0,
         startHour:`${course.hour.toString().padStart(2,'0')}:00`,
         endHour:`${(course.hour+3).toString().padStart(2,'0')}:00`,
-        instructorId:inst?.id||null,
-        instructorName:inst?.name||null,
-        extraInstructors:[],
-        instructorsNeeded:1,
-        missingInstructors:inst?0:1,
-        status:inst?'assigned':'no_instructor',
+        instructorId:inst?.id||null,instructorName:inst?.name||null,
+        extraInstructors:[],instructorsNeeded:1,
+        missingInstructors:inst?0:1,status:inst?'assigned':'no_instructor',
         source:'katmandu_wizard',
       };
     });
     setAssignments(prev=>({...prev,[key]:[...existing,...newItems]}));
     setCourses(prev=>prev.map(c=>c.id===course.id?{...c,assigned:true}:c));
-    showToast(`✓ נוצרו ${newItems.length} שיבוצים לקורס ${course.id}`);
+    showToast(`✓ נוצרו ${newItems.length} שיבוצים`);
   };
-
   return(
     <div style={{direction:'rtl',padding:'16px'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
         <h2 style={{fontSize:16,fontWeight:600,margin:0}}>אשף קטמנדו — {month}</h2>
-        {(!katAct||!katBoat)&&<span style={{fontSize:12,color:'var(--danger)',background:'var(--danger-light,#fee2e2)',padding:'3px 10px',borderRadius:8}}>
-          ⚠ חסר: {[!katAct&&'פעילות',!katBoat&&'סירה'].filter(Boolean).join(' + ')}
-        </span>}
+        {!katAct&&<span style={{fontSize:12,color:'var(--danger)',background:'#fee2e2',padding:'3px 10px',borderRadius:8}}>⚠ חסר</span>}
       </div>
-      <div style={{fontSize:12,color:'var(--text-secondary)',marginBottom:12}}>
-        לכל קורס בחר יום ושעה. מוצגים רק מדריכים זמינים + מוסמכים לקטמנדו.
-      </div>
-
       <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'flex-start'}}>
         {courses.map((course,ci)=>{
-          const dates=getDatesFromStart(course.startDate).slice(0,6-course.startStage);
-          const startEntry=course.startDate?allMonthDates.find(e=>e.date===course.startDate):null;
+          const dates=getCourseDates(course);
           return(
-            <div key={course.id} style={{background:'var(--bg-card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',minWidth:230,flex:'1 1 230px',maxWidth:320}}>
+            <div key={course.id} style={{background:'var(--bg-card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',minWidth:280,flex:'1 1 280px',maxWidth:420}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                 <span style={{fontWeight:600,fontSize:13}}>קורס {ci+1}{course.assigned&&<span style={{fontSize:10,marginRight:5,color:'#16a34a',background:'#dcfce7',padding:'1px 6px',borderRadius:6}}>✓ שובץ</span>}</span>
                 <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                  <span style={{fontSize:10,color:'var(--text-secondary)',background:'var(--bg-secondary,#f3f4f6)',padding:'1px 6px',borderRadius:8}}>{dates.length} מפגשים</span>
-                  {courses.length>1&&<button onClick={()=>removeCourse(course.id)} title="הסר" style={{background:'none',border:'none',color:'var(--danger,#dc2626)',cursor:'pointer',fontSize:16,lineHeight:1,padding:0}}>✕</button>}
+                  {dates.length>0&&<span style={{fontSize:10,color:'var(--text-secondary)',background:'var(--bg-secondary,#f3f4f6)',padding:'1px 6px',borderRadius:8}}>{dates.length} מפגשים</span>}
+                  {courses.length>1&&<button onClick={()=>removeCourse(course.id)} style={{background:'none',border:'none',color:'var(--danger,#dc2626)',cursor:'pointer',fontSize:16,lineHeight:1,padding:0}}>✕</button>}
                 </div>
               </div>
-
-              <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 6px',alignItems:'center',marginBottom:10,fontSize:12}}>
-                <span style={{color:'var(--text-secondary)'}}>תאריך התחלה</span>
-                <select value={course.startDate||''} onChange={e=>upd(course.id,'startDate',e.target.value?Number(e.target.value):null)}
-                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  <option value=''>— בחר —</option>
-                  {allMonthDates.map(e=><option key={e.date} value={e.date}>{e.date}/{mNum.toString().padStart(2,'0')} ({e.dowName})</option>)}
+              <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 6px',alignItems:'center',marginBottom:8,fontSize:12}}>
+                <span style={{color:'var(--text-secondary)'}}>שלב התחלה</span>
+                <select value={course.startStage} onChange={e=>upd(course.id,'startStage',Number(e.target.value))} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {[1,2,3,4,5].map(s=><option key={s} value={s}>קטמנדו {s} ({6-s} מפגשים)</option>)}
                 </select>
-                <span style={{color:'var(--text-secondary)'}}>שעה</span>
-                <select value={course.hour} onChange={e=>upd(course.id,'hour',Number(e.target.value))}
-                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  {[7,8,9,10,11,12,13,14,15,16,17].map(h=><option key={h} value={h}>{h}:00–{h+3}:00</option>)}
-                </select>
-                <span style={{color:'var(--text-secondary)'}}>שלב</span>
-                <select value={course.startStage} onChange={e=>upd(course.id,'startStage',Number(e.target.value))}
-                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  {[1,2,3,4,5].map(s=><option key={s} value={s}>קטמנדו {s}</option>)}
+                <span style={{color:'var(--text-secondary)'}}>כיתה</span>
+                <select value={course.classroomBoatId||''} onChange={e=>upd(course.id,'classroomBoatId',e.target.value||null)} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {classroomBoats.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                  {classroomBoats.length===0&&<option value=''>אין כיתות</option>}
                 </select>
               </div>
-
+              <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 6px',alignItems:'center',marginBottom:10,fontSize:12}}>
+                <span style={{color:'var(--text-secondary)'}}>תאריך התחלה</span>
+                <select value={course.startDate||''} onChange={e=>upd(course.id,'startDate',e.target.value?Number(e.target.value):null)} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  <option value=''>— בחר —</option>
+                  {allWeekdayDates.map(e=><option key={e.date} value={e.date}>{e.date}/{mNum.toString().padStart(2,'0')} ({e.dowName})</option>)}
+                </select>
+                <span style={{color:'var(--text-secondary)'}}>שעה</span>
+                <select value={course.hour} onChange={e=>upd(course.id,'hour',Number(e.target.value))} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {[7,8,9,10,11,12,13,14,15,16,17].map(h=><option key={h} value={h}>{h}:00–{h+3}:00</option>)}
+                </select>
+              </div>
               {dates.length===0?(
-                <div style={{fontSize:11,color:'var(--text-secondary)',fontStyle:'italic'}}>אין ימים בחודש זה</div>
+                <div style={{fontSize:11,color:'var(--text-secondary)',fontStyle:'italic',marginBottom:10}}>בחר תאריך התחלה</div>
               ):(
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,marginBottom:10}}>
                   <thead>
                     <tr>
                       <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>תאריך</th>
                       <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>שלב</th>
-                      <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>זמינים</th>
+                      <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>מדריך</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -7981,26 +8117,22 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                       const stage=Math.min(course.startStage+i,5);
                       const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,course.hour));
                       const isLast=i===dates.length-1;
-                      const selInstId=(course.instSel||{})[d]||'';
+                      const schedEntry=(scheduledByKatId[course.id]||{})[d];
+                      const selInstId=schedEntry?.instId||(course.instSel||{})[d]||'';
+                      const schedName=schedEntry?.instName||null;
                       return(
                         <tr key={d} style={{borderBottom:isLast?'none':'0.5px solid var(--border)'}}>
-                          <td style={{padding:'4px',fontWeight:500,whiteSpace:'nowrap',fontSize:11}}>
-                            {d}/{mNum.toString().padStart(2,'0')}
-                          </td>
+                          <td style={{padding:'4px',fontWeight:500,whiteSpace:'nowrap',fontSize:11}}>{d}/{mNum.toString().padStart(2,'0')}</td>
                           <td style={{padding:'4px',whiteSpace:'nowrap'}}>
-                            <span style={{fontSize:10,padding:'1px 6px',borderRadius:8,background:STAGE_COLORS[stage],color:STAGE_TEXT[stage]}}>
-                              {stage}
-                            </span>
+                            <span style={{fontSize:10,padding:'1px 6px',borderRadius:8,background:STAGE_COLORS[stage],color:STAGE_TEXT[stage]}}>{stage}</span>
                           </td>
                           <td style={{padding:'4px',minWidth:90}}>
-                            <select value={selInstId} onChange={e=>updInstSel(course.id,d,e.target.value)}
-                              style={{fontSize:10,padding:'2px 4px',borderRadius:4,border:'1px solid var(--border)',width:'100%'}}>
+                            <select value={selInstId} onChange={e=>updInstSel(course.id,d,e.target.value)} style={{fontSize:10,padding:'2px 4px',borderRadius:4,border:'1px solid var(--border)',width:'100%'}}>
                               <option value=''>— בחר —</option>
-                              {availAndQual.map(inst=>(
-                                <option key={inst.id} value={inst.id}>{inst.name.split(' ').slice(0,2).join(' ')}</option>
-                              ))}
+                              {availAndQual.map(inst=><option key={inst.id} value={inst.id}>{inst.name.split(' ').slice(0,2).join(' ')}</option>)}
                             </select>
-                            {availAndQual.length===0&&<span style={{fontSize:9,color:'#dc2626'}}>⚠ אין זמינים</span>}
+                            {availAndQual.length===0&&!schedName&&<span style={{fontSize:9,color:'#dc2626'}}>⚠ אין זמינים</span>}
+                            {course.assigned&&schedName&&<span style={{fontSize:9,color:'#16a34a',marginRight:2}}>✓ {schedName}</span>}
                           </td>
                         </tr>
                       );
@@ -8008,20 +8140,16 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                   </tbody>
                 </table>
               )}
-
-              <div style={{marginTop:10,display:'flex',justifyContent:'flex-end'}}>
-                <button onClick={()=>generateAssignments(course)}
-                  style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:course.assigned?'#16a34a':'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:'pointer'}}>
+              <div style={{display:'flex',justifyContent:'flex-end'}}>
+                <button onClick={()=>generateAssignments(course)} style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:course.assigned?'#16a34a':'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:'pointer'}}>
                   {course.assigned?'עדכן שיבוץ':'צור שיבוצים'}
                 </button>
               </div>
             </div>
           );
         })}
-
         <div style={{minWidth:120,flex:'0 0 auto',display:'flex',alignItems:'flex-start',paddingTop:4}}>
-          <button onClick={addCourse}
-            style={{padding:'8px 14px',borderRadius:8,border:'1px dashed var(--border)',background:'transparent',color:'var(--text-secondary)',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>
+          <button onClick={addCourse} style={{padding:'8px 14px',borderRadius:8,border:'1px dashed var(--border)',background:'transparent',color:'var(--text-secondary)',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>
             + קורס נוסף
           </button>
         </div>
