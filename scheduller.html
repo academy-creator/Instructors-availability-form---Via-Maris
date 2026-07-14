@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.41';
+const SCHEDULER_VERSION = 'v6.47';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -7983,35 +7983,50 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
   const courses=katCourses;
   const setCourses=setKatCourses;
   const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמנדו')||null,[activities]);
-  const classroomBoats=React.useMemo(()=>boats.filter(b=>b.name==='כיתה 3'||b.name==='מגלן'),[boats]);
+  const katBoat=React.useMemo(()=>boats.find(b=>b.name==='קטמנדו')||null,[boats]);
   const [y,mNum]=month.split('-').map(Number);
-  const allWeekdayDates=React.useMemo(()=>{
-    const DOW_HE=['ראשון','שני','שלישי','רביעי','חמישי'];
+  const DOW_HE=['ראשון','שני','שלישי','רביעי','חמישי','שישי'];
+  const allDates=React.useMemo(()=>{
     const arr=[];const dt=new Date(y,mNum-1,1);
     while(dt.getMonth()===mNum-1){
       const dow=dt.getDay();
-      if(dow<=4) arr.push({date:dt.getDate(),dow,dowName:DOW_HE[dow]});
+      if(dow<=5) arr.push({date:dt.getDate(),dow,dowName:DOW_HE[dow]});
       dt.setDate(dt.getDate()+1);
     }
     return arr;
   },[y,mNum]);
   const dowGroups=React.useMemo(()=>{
     const m={};
-    allWeekdayDates.forEach(e=>{if(!m[e.dow])m[e.dow]=[];m[e.dow].push(e.date);});
+    allDates.forEach(e=>{if(!m[e.dow])m[e.dow]=[];m[e.dow].push(e.date);});
     return m;
-  },[allWeekdayDates]);
+  },[allDates]);
   const isAvail3h=(inst,dayNum,hour)=>{
     const av=availability[`${inst.id}_${month}`]||{};
     for(let h=hour;h<hour+3;h++){
-      const v=av[`${dayNum}_${h.toString().padStart(2,'0')}:00`];
-      if(v!==true) return false;
+      if(av[`${dayNum}_${h.toString().padStart(2,'0')}:00`]!==true)return false;
     }
     return true;
   };
   const isQual=inst=>(inst.skills||[]).includes('קטמנדו');
+  const SLOTS=[
+    {label:'07–10',start:7},{label:'10–13',start:10},
+    {label:'13–16',start:13},{label:'16–19',start:16},
+  ];
+  const isBoatFree=(dayNum,slotStart,excludeCourseId)=>{
+    if(!katBoat)return true;
+    const sched=assignments[`schedule_${month}`]||[];
+    const startH=slotStart,endH=slotStart+3;
+    return!sched.some(s=>{
+      if(excludeCourseId&&String(s._katCourseId)===String(excludeCourseId))return false;
+      if(String(s.boatId)!==String(katBoat.id)||Number(s.date)!==Number(dayNum))return false;
+      const[sh]=(s.startHour||'00:00').split(':').map(Number);
+      const[eh]=(s.endHour||'23:59').split(':').map(Number);
+      return sh<endH&&eh>startH;
+    });
+  };
   const getCourseDates=(course)=>{
     if(!course.startDate) return [];
-    const entry=allWeekdayDates.find(e=>e.date===course.startDate);
+    const entry=allDates.find(e=>e.date===course.startDate);
     if(!entry) return [];
     return (dowGroups[entry.dow]||[]).filter(d=>d>=course.startDate).slice(0,6-course.startStage);
   };
@@ -8026,17 +8041,20 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
   },[assignments,month]);
   const STAGE_COLORS=['','#EEEDFE','#E1F5EE','#FAECE7','#FAEEDA','#E6F1FB'];
   const STAGE_TEXT=['','#3C3489','#085041','#712B13','#633806','#0C447C'];
-  const addCourse=()=>{const id=Date.now();setCourses(prev=>[...prev,{id,startDate:null,hour:9,startStage:1,classroomBoatId:classroomBoats[0]?.id||null,assigned:false,instSel:{}}]);};
+  const addCourse=()=>{const id=Date.now();setCourses(prev=>[...prev,{id,startDate:null,slotIdx:0,startStage:1,assigned:false,instSel:{}}]);};
   const removeCourse=id=>setCourses(prev=>prev.filter(c=>c.id!==id));
   const upd=(id,field,val)=>setCourses(prev=>prev.map(c=>c.id===id?{...c,[field]:val}:c));
   const updInstSel=(cid,date,instId)=>setCourses(prev=>prev.map(c=>c.id===cid?{...c,assigned:false,instSel:{...(c.instSel||{}),[date]:instId}}:c));
   const generateAssignments=(course)=>{
     if(!katAct){showToast('לא נמצאה פעילות קטמנדו');return;}
+    if(!katBoat){showToast('לא נמצאה סירת קטמנדו');return;}
     if(!course.startDate){showToast('בחר תאריך התחלה');return;}
     const dates=getCourseDates(course);
     if(!dates.length){showToast('אין ימים תואמים');return;}
-    const entry=allWeekdayDates.find(e=>e.date===course.startDate);
-    const classroomBoat=boats.find(b=>b.id===course.classroomBoatId)||classroomBoats[0]||null;
+    const entry=allDates.find(e=>e.date===course.startDate);
+    const slot=SLOTS[course.slotIdx||0];
+    const blockedDate=dates.find(d=>!isBoatFree(d,slot.start,course.id));
+    if(blockedDate){showToast(`קטמנדו תפוסה ב-${blockedDate}/${mNum.toString().padStart(2,'0')} ← שנה סלוט`);return;}
     const key='schedule_'+month;
     const existing=(assignments[key]||[]).filter(a=>a._katCourseId!==course.id);
     const now=Date.now();
@@ -8047,10 +8065,10 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
       return{
         id:`kat_${course.id}_${d}_${now+i}`,_katCourseId:course.id,
         activityId:katAct.id,activityName:`קטמנדו ${stage}`,
-        boatId:classroomBoat?.id||null,boatName:classroomBoat?.name||'כיתה 3',boatType:classroomBoat?.type||'',
+        boatId:katBoat.id,boatName:katBoat.name,boatType:katBoat.type||'',
         date:d,dayOfWeek:entry?.dow||0,
-        startHour:`${course.hour.toString().padStart(2,'0')}:00`,
-        endHour:`${(course.hour+3).toString().padStart(2,'0')}:00`,
+        startHour:`${slot.start.toString().padStart(2,'0')}:00`,
+        endHour:`${(slot.start+3).toString().padStart(2,'0')}:00`,
         instructorId:inst?.id||null,instructorName:inst?.name||null,
         extraInstructors:[],instructorsNeeded:1,
         missingInstructors:inst?0:1,status:inst?'assigned':'no_instructor',
@@ -8065,11 +8083,16 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
     <div style={{direction:'rtl',padding:'16px'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
         <h2 style={{fontSize:16,fontWeight:600,margin:0}}>אשף קטמנדו — {month}</h2>
-        {!katAct&&<span style={{fontSize:12,color:'var(--danger)',background:'#fee2e2',padding:'3px 10px',borderRadius:8}}>⚠ חסר</span>}
+        <div style={{display:'flex',gap:8}}>
+          {!katAct&&<span style={{fontSize:12,color:'var(--danger)',background:'#fee2e2',padding:'3px 10px',borderRadius:8}}>⚠ חסרה פעילות קטמנדו</span>}
+          {!katBoat&&<span style={{fontSize:12,color:'var(--danger)',background:'#fee2e2',padding:'3px 10px',borderRadius:8}}>⚠ חסרה סירת קטמנדו</span>}
+        </div>
       </div>
       <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'flex-start'}}>
         {courses.map((course,ci)=>{
           const dates=getCourseDates(course);
+          const curSlot=SLOTS[course.slotIdx||0];
+          const hasBlocked=dates.some(d=>!isBoatFree(d,curSlot.start,course.id));
           return(
             <div key={course.id} style={{background:'var(--bg-card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',minWidth:280,flex:'1 1 280px',maxWidth:420}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
@@ -8084,23 +8107,19 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                 <select value={course.startStage} onChange={e=>upd(course.id,'startStage',Number(e.target.value))} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
                   {[1,2,3,4,5].map(s=><option key={s} value={s}>קטמנדו {s} ({6-s} מפגשים)</option>)}
                 </select>
-                <span style={{color:'var(--text-secondary)'}}>כיתה</span>
-                <select value={course.classroomBoatId||''} onChange={e=>upd(course.id,'classroomBoatId',e.target.value||null)} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  {classroomBoats.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-                  {classroomBoats.length===0&&<option value=''>אין כיתות</option>}
-                </select>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 6px',alignItems:'center',marginBottom:10,fontSize:12}}>
                 <span style={{color:'var(--text-secondary)'}}>תאריך התחלה</span>
                 <select value={course.startDate||''} onChange={e=>upd(course.id,'startDate',e.target.value?Number(e.target.value):null)} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
                   <option value=''>— בחר —</option>
-                  {allWeekdayDates.map(e=><option key={e.date} value={e.date}>{e.date}/{mNum.toString().padStart(2,'0')} ({e.dowName})</option>)}
+                  {allDates.map(e=><option key={e.date} value={e.date}>{e.date}/{mNum.toString().padStart(2,'0')} ({e.dowName})</option>)}
                 </select>
-                <span style={{color:'var(--text-secondary)'}}>שעה</span>
-                <select value={course.hour} onChange={e=>upd(course.id,'hour',Number(e.target.value))} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  {[7,8,9,10,11,12,13,14,15,16,17].map(h=><option key={h} value={h}>{h}:00–{h+3}:00</option>)}
+                <span style={{color:'var(--text-secondary)'}}>סלוט</span>
+                <select value={course.slotIdx||0} onChange={e=>upd(course.id,'slotIdx',Number(e.target.value))} style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
+                  {SLOTS.map((s,i)=><option key={i} value={i}>{s.label}</option>)}
                 </select>
               </div>
+              {hasBlocked&&<div style={{fontSize:11,color:'#dc2626',background:'#fee2e2',borderRadius:6,padding:'5px 8px',marginBottom:8}}>⚠ סירת קטמנדו תפוסה באחד המועדים — שנה שעה</div>}
               {dates.length===0?(
                 <div style={{fontSize:11,color:'var(--text-secondary)',fontStyle:'italic',marginBottom:10}}>בחר תאריך התחלה</div>
               ):(
@@ -8109,13 +8128,15 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                     <tr>
                       <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>תאריך</th>
                       <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>שלב</th>
+                      <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>סירה</th>
                       <th style={{textAlign:'right',fontWeight:400,color:'var(--text-secondary)',padding:'3px 4px',borderBottom:'0.5px solid var(--border)',fontSize:10}}>מדריך</th>
                     </tr>
                   </thead>
                   <tbody>
                     {dates.map((d,i)=>{
                       const stage=Math.min(course.startStage+i,5);
-                      const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,course.hour));
+                      const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,curSlot.start));
+                      const boatFree=isBoatFree(d,curSlot.start,course.id);
                       const isLast=i===dates.length-1;
                       const schedEntry=(scheduledByKatId[course.id]||{})[d];
                       const selInstId=schedEntry?.instId||(course.instSel||{})[d]||'';
@@ -8125,6 +8146,9 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                           <td style={{padding:'4px',fontWeight:500,whiteSpace:'nowrap',fontSize:11}}>{d}/{mNum.toString().padStart(2,'0')}</td>
                           <td style={{padding:'4px',whiteSpace:'nowrap'}}>
                             <span style={{fontSize:10,padding:'1px 6px',borderRadius:8,background:STAGE_COLORS[stage],color:STAGE_TEXT[stage]}}>{stage}</span>
+                          </td>
+                          <td style={{padding:'4px',whiteSpace:'nowrap',fontSize:10}}>
+                            {boatFree?<span style={{color:'#16a34a'}}>פנויה</span>:<span style={{color:'#dc2626',fontWeight:500}}>תפוסה</span>}
                           </td>
                           <td style={{padding:'4px',minWidth:90}}>
                             <select value={selInstId} onChange={e=>updInstSel(course.id,d,e.target.value)} style={{fontSize:10,padding:'2px 4px',borderRadius:4,border:'1px solid var(--border)',width:'100%'}}>
@@ -8141,7 +8165,9 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                 </table>
               )}
               <div style={{display:'flex',justifyContent:'flex-end'}}>
-                <button onClick={()=>generateAssignments(course)} style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:course.assigned?'#16a34a':'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:'pointer'}}>
+                <button onClick={()=>generateAssignments(course)}
+                  disabled={hasBlocked}
+                  style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:hasBlocked?'#9ca3af':course.assigned?'#16a34a':'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:hasBlocked?'default':'pointer',opacity:hasBlocked?0.6:1}}>
                   {course.assigned?'עדכן שיבוץ':'צור שיבוצים'}
                 </button>
               </div>
