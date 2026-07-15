@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.51';
+const SCHEDULER_VERSION = 'v6.52';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -7178,6 +7178,52 @@ const TYPE_DUR_MAP={'מנועית':2,'בי"ס':2,'בי״ס':2,'קטמנדו':3,'
 const normType=s=>(s||'').replace(/["״]/g,'');
 const getDurByType=t=>{'use strict';const n=normType(t);return({'מנועית':2,'ביס':2,'קטמנדו':3,'מונוהול':3,'קטמרן':3})[n]||TYPE_DUR_MAP[t]||null;};
 
+function ClassroomEventDialog({dlg,activities,displayInsts,clsActId,setClsActId,clsStart,setClsStart,clsEnd,setClsEnd,clsInstId,setClsInstId,onSave,onDelete,onClose}){
+  if(!dlg)return null;
+  const HALF_TIMES=[];
+  for(let h=7;h<22;h++){HALF_TIMES.push(`${h.toString().padStart(2,'0')}:00`);HALF_TIMES.push(`${h.toString().padStart(2,'0')}:30`);}
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
+      <div style={{background:'var(--card)',borderRadius:10,padding:20,minWidth:290,maxWidth:340,direction:'rtl',boxShadow:'0 8px 32px rgba(0,0,0,.2)'}} onClick={e=>e.stopPropagation()}>
+        <h3 style={{margin:'0 0 14px',fontSize:14,fontWeight:700}}>{dlg.mode==='add'?'הוסף לכיתה':'ערוך אירוע'} — {dlg.classroomName}</h3>
+        <div className="form-group" style={{marginBottom:10}}>
+          <label style={{fontSize:12,color:'var(--text-light)',display:'block',marginBottom:3}}>פעילות</label>
+          <select value={clsActId} onChange={e=>setClsActId(e.target.value)} style={{width:'100%',fontSize:13,padding:'6px 8px'}}>
+            <option value="">— כללי —</option>
+            {activities.filter(a=>Number(a.totalPerMonth)>0||a.totalPerMonth===undefined).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:10}}>
+          <div style={{flex:1}}>
+            <label style={{fontSize:12,color:'var(--text-light)',display:'block',marginBottom:3}}>התחלה</label>
+            <select value={clsStart} onChange={e=>setClsStart(e.target.value)} style={{width:'100%',fontSize:13,padding:'5px'}}>
+              {HALF_TIMES.map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{flex:1}}>
+            <label style={{fontSize:12,color:'var(--text-light)',display:'block',marginBottom:3}}>סיום</label>
+            <select value={clsEnd} onChange={e=>setClsEnd(e.target.value)} style={{width:'100%',fontSize:13,padding:'5px'}}>
+              {HALF_TIMES.filter(t=>t>clsStart).map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-group" style={{marginBottom:14}}>
+          <label style={{fontSize:12,color:'var(--text-light)',display:'block',marginBottom:3}}>מדריך (אופציונלי)</label>
+          <select value={clsInstId} onChange={e=>setClsInstId(e.target.value)} style={{width:'100%',fontSize:13,padding:'6px 8px'}}>
+            <option value="">— ללא מדריך —</option>
+            {displayInsts.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+          </select>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {dlg.mode==='edit'&&<button className="btn btn-danger" style={{marginLeft:'auto'}} onClick={()=>onDelete(dlg.ev.id)}>מחק</button>}
+          <button className="btn btn-outline" style={{marginLeft:dlg.mode==='add'?'auto':0}} onClick={onClose}>ביטול</button>
+          <button className="btn btn-primary" onClick={onSave}>{dlg.mode==='add'?'הוסף':'שמור'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ManualEventDialog({dlg,dlgActId,setDlgActId,dlgStart,setDlgStart,dlgInstId,setDlgInstId,dlgBoatType,setDlgBoatType,activities,displayInsts,instructors,onSave,onDelete,onClose}){
   if(!dlg)return null;
   const boatTypes=dlg.boatTypes||[];
@@ -7451,6 +7497,89 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const [dragEvId,setDragEvId]=useState(null);
   const schedKey=`schedule_${month}`;
   const [editModalItem,setEditModalItem]=useState(null);
+  const CLASSROOMS_LIST=['מגלן','כיתה 3'];
+  const [clsDlg,setClsDlg]=useState(null);
+  const [clsActId,setClsActId]=useState('');
+  const [clsStart,setClsStart]=useState('09:00');
+  const [clsEnd,setClsEnd]=useState('10:00');
+  const [clsInstId,setClsInstId]=useState('');
+
+  const classroomCrmEvents=useMemo(()=>{
+    const map={};CLASSROOMS_LIST.forEach(cl=>map[cl]=[]);
+    crmDayEvents.forEach(e=>{
+      const idStr=String(e.roomId);
+      const cls=CLASSROOM_NAMES_BY_ROOM_ID[idStr];
+      if(cls&&map[cls]){
+        const stripped=stripHtml(e.text);const inst=extractParens(e.text);
+        map[cls].push({startMin:timeToMin(e.startHour),endMin:timeToMin(e.endHour||'23:59'),title:stripped.split(/[(,]/)[0].trim()||'אירוע',subtitle:inst,color:e.color||'#94a3b8',textColor:'#1e293b',source:'crm'});
+      }
+    });
+    return map;
+  },[crmDayEvents]);
+
+  const classroomManualEvents=useMemo(()=>{
+    const map={};CLASSROOMS_LIST.forEach(cl=>map[cl]=[]);
+    (Array.isArray(rawSched)?rawSched:[]).filter(s=>s.date===selDate&&s._classroomName).forEach(s=>{
+      const cl=s._classroomName;
+      if(map[cl])map[cl].push({id:s.id,startMin:timeToMin(s.startHour),endMin:timeToMin(s.endHour),title:s.activityName||'אירוע',subtitle:s.instructorName||'',color:'#10b981',textColor:'#fff',source:'classroom_manual'});
+    });
+    return map;
+  },[rawSched,selDate]);
+
+  const buildClsLayout=(events)=>{
+    const slots={};
+    for(let h=CAL_START_HOUR;h<CAL_END_HOUR;h++){slots[h*2]={type:'free'};slots[h*2+1]={type:'free'};}
+    events.slice().sort((a,b)=>a.startMin-b.startMin).forEach(ev=>{
+      const ss=Math.max(CAL_START_HOUR*2,Math.round(ev.startMin/30));
+      const es=Math.min(CAL_END_HOUR*2,Math.ceil(ev.endMin/30));
+      if(es<=ss)return;
+      if(slots[ss]&&slots[ss].type==='free'){
+        slots[ss]={type:'start',ev,span:es-ss};
+        for(let s=ss+1;s<es;s++){if(slots[s])slots[s]={type:'continue'};}
+      }
+    });
+    return slots;
+  };
+
+  const classroomLayouts=useMemo(()=>{
+    const map={};
+    CLASSROOMS_LIST.forEach(cl=>{
+      const all=[...(classroomCrmEvents[cl]||[]),...(classroomManualEvents[cl]||[])];
+      map[cl]=buildClsLayout(all);
+    });
+    return map;
+  },[classroomCrmEvents,classroomManualEvents]);
+
+  const openAddCls=(cls,h,half)=>{
+    const sm=h*60+half*30;const em=sm+30;
+    const fmt=m=>`${Math.floor(m/60).toString().padStart(2,'0')}:${(m%60).toString().padStart(2,'0')}`;
+    setClsDlg({mode:'add',classroomName:cls});setClsActId('');setClsStart(fmt(sm));setClsEnd(fmt(em));setClsInstId('');
+  };
+  const openEditCls=(ev,cls)=>{
+    if(!ev.id)return;
+    const item=(Array.isArray(rawSched)?rawSched:[]).find(s=>s.id===ev.id);
+    if(!item)return;
+    setClsDlg({mode:'edit',classroomName:cls,ev});
+    setClsActId(item.activityId||'');setClsStart(item.startHour||'09:00');setClsEnd(item.endHour||'10:00');setClsInstId(item.instructorId||'');
+  };
+  const saveClsEvent=()=>{
+    if(!clsDlg)return;
+    const act=activities.find(a=>a.id===clsActId)||null;
+    const inst=instructors.find(i=>i.id===clsInstId)||null;
+    const item={id:clsDlg.mode==='edit'?clsDlg.ev.id:`cls_${Date.now()}`,_classroomName:clsDlg.classroomName,date:selDate,startHour:clsStart,endHour:clsEnd,activityId:act?.id||null,activityName:act?.name||'',instructorId:inst?.id||null,instructorName:inst?.name||'',source:'classroom_manual',boatId:null};
+    setAssignments(prev=>{
+      const arr=Array.isArray(prev[schedKey])?[...prev[schedKey]]:[];
+      if(clsDlg.mode==='edit'){const idx=arr.findIndex(s=>s.id===item.id);if(idx>=0)arr[idx]={...arr[idx],...item};else arr.push(item);}
+      else arr.push(item);
+      return{...prev,[schedKey]:arr};
+    });
+    setClsDlg(null);
+  };
+  const deleteClsEvent=(id)=>{
+    setAssignments(prev=>({...prev,[schedKey]:(Array.isArray(prev[schedKey])?prev[schedKey]:[]).filter(s=>s.id!==id)}));
+    setClsDlg(null);
+  };
+
   const validateAsgn=(item,allItems)=>{
     const t2m=(t)=>{if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m;};
     const errors=[],warnings=[];
@@ -7568,6 +7697,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   return(
     <div>
       <ManualEventDialog dlg={dlg} dlgActId={dlgActId} setDlgActId={setDlgActId} dlgStart={dlgStart} setDlgStart={setDlgStart} dlgInstId={dlgInstId} setDlgInstId={setDlgInstId} dlgBoatType={dlgBoatType} setDlgBoatType={setDlgBoatType} activities={activities||[]} displayInsts={displayInsts} instructors={instructors} onSave={saveManualEvent} onDelete={deleteManualEvent} onClose={()=>setDlg(null)}/>
+      <ClassroomEventDialog dlg={clsDlg} activities={activities||[]} displayInsts={displayInsts} clsActId={clsActId} setClsActId={setClsActId} clsStart={clsStart} setClsStart={setClsStart} clsEnd={clsEnd} setClsEnd={setClsEnd} clsInstId={clsInstId} setClsInstId={setClsInstId} onSave={saveClsEvent} onDelete={deleteClsEvent} onClose={()=>setClsDlg(null)}/>
       {editModalItem&&<EditScheduleItemModal item={editModalItem} instructors={instructors||[]} activities={activities||[]} boats={boats||[]} month={month} validate={(it)=>validateAsgn(it,Array.isArray(assignments[schedKey])?assignments[schedKey]:[])} onSave={saveAsgnEdit} onCancel={()=>setEditModalItem(null)}/>}
       <div className="card">
         <div className="card-header">
@@ -7618,6 +7748,13 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                     <div style={{fontSize:10,color:'var(--text-light)',fontWeight:400}}>{b.type||''}</div>
                   </th>
                 ))}
+                <th style={{width:6,background:'transparent',padding:0}}/>
+                {CLASSROOMS_LIST.map(cls=>(
+                  <th key={cls} style={{minWidth:110,fontSize:12,padding:'8px 4px',textAlign:'center',background:'#ecfdf5',borderBottom:'2px solid #6ee7b7',borderRight:'1px solid #d1fae5'}}>
+                    <div style={{fontWeight:700,color:'#065f46'}}>{cls}</div>
+                    <div style={{fontSize:10,color:'#059669',fontWeight:400}}>כיתה · ½ שעה</div>
+                  </th>
+                ))}
                 {displayInsts.length>0&&<th style={{width:8,background:'transparent',padding:0}}/>}
                 {displayInsts.map(inst=>{
                   const avail=(availability||{})[`${inst.id}_${month}`]||{};
@@ -7664,6 +7801,37 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                       );
                     }
                     return<td key={b.id} style={{borderTop:'1px dashed #e2e8f0',padding:0,cursor:'crosshair',background:dragEvId?'rgba(93,202,165,.08)':'transparent'}} title="לחץ להוספת פעילות" onClick={()=>openAdd(b.id,b.name,h)} onDragOver={e=>e.preventDefault()} onDrop={e=>{const id=e.dataTransfer.getData('evid');if(id)handleDrop(b.id,h,id);}}><div style={{height:36,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,color:'#9FE1CB',opacity:dragEvId?.6:0}}>+</div></td>;
+                  })}
+                  <td style={{width:6,background:'transparent',border:'none',padding:0}}/>
+                  {CLASSROOMS_LIST.map(cls=>{
+                    const layout=classroomLayouts[cls]||{};
+                    return(
+                      <td key={cls} style={{padding:0,verticalAlign:'top',height:36,background:'#f0fdf4',border:'0.5px solid #d1fae5'}}>
+                        <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+                          {[0,1].map(half=>{
+                            const slotKey=h*2+half;
+                            const cell=layout[slotKey]||{type:'free'};
+                            if(cell.type==='continue')return<div key={half} style={{flex:1,background:'rgba(16,185,129,.18)',borderTop:'0.5px solid #a7f3d0'}}/>;
+                            if(cell.type==='start'){
+                              const ev=cell.ev;const editable=ev.source==='classroom_manual';
+                              return(
+                                <div key={half} style={{flex:1,background:ev.color,color:ev.textColor,padding:'1px 4px',overflow:'hidden',cursor:editable?'pointer':'default',borderTop:'0.5px solid rgba(0,0,0,.08)'}}
+                                  onClick={editable?()=>openEditCls(ev,cls):null}>
+                                  <div style={{fontSize:9,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.title}</div>
+                                  {ev.subtitle&&<div style={{fontSize:8,opacity:.85,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.subtitle}</div>}
+                                </div>
+                              );
+                            }
+                            return(
+                              <div key={half} style={{flex:1,borderTop:half===1?'0.5px dashed #bbf7d0':'none',cursor:'crosshair',display:'flex',alignItems:'center',justifyContent:'center'}}
+                                onClick={()=>openAddCls(cls,h,half)}>
+                                <span style={{fontSize:12,color:'#34d399',opacity:.35}}>+</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    );
                   })}
                   {displayInsts.length>0&&<td style={{width:8,background:'transparent',border:'none',padding:0}}/>}
                   {displayInsts.map(inst=>{
