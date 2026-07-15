@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.52';
+const SCHEDULER_VERSION = 'v6.53';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -400,10 +400,6 @@ class ErrorBoundary extends React.Component {
 function App(){
   const [tab,setTab]=useState('instructors');
   const [weeklySelections,setWeeklySelections]=useState(()=>{try{return JSON.parse(localStorage.getItem('sch_weekly_sel_v2'))||{};}catch{return {};}});
-  const curWeeklySelections=React.useMemo(()=>weeklySelections[month]||{},[weeklySelections,month]);
-  const setCurWeeklySelections=React.useCallback((updater)=>setWeeklySelections(prev=>({
-    ...prev,[month]:typeof updater==='function'?updater(prev[month]||{}):updater
-  })),[month]);
   const [assignmentViewDate,setAssignmentViewDate]=useState(null);
   const [weeklyPlanIdx,setWeeklyPlanIdx]=useState(0);
   const [weeklyPlanShowWeekend,setWeeklyPlanShowWeekend]=useState(false);
@@ -466,6 +462,10 @@ function App(){
     const d=new Date(); d.setMonth(d.getMonth()+1);
     return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}`;
   });
+  const curWeeklySelections=React.useMemo(()=>weeklySelections[month]||{},[weeklySelections,month]);
+  const setCurWeeklySelections=React.useCallback((updater)=>setWeeklySelections(prev=>({
+    ...prev,[month]:typeof updater==='function'?updater(prev[month]||{}):updater
+  })),[month]);
   const [sheetSyncStatus,setSheetSyncStatus]=useState('idle');
   const [sheetSkills,setSheetSkills]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('sch_sheet_skills'))||[];}catch{return [];}
