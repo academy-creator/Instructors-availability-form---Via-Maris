@@ -147,7 +147,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.47';
+const SCHEDULER_VERSION = 'v6.51';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -399,7 +399,11 @@ class ErrorBoundary extends React.Component {
 
 function App(){
   const [tab,setTab]=useState('instructors');
-  const [weeklySelections,setWeeklySelections]=useState(()=>{try{return JSON.parse(localStorage.getItem('sch_weekly_selections'))||{};}catch{return {};}});
+  const [weeklySelections,setWeeklySelections]=useState(()=>{try{return JSON.parse(localStorage.getItem('sch_weekly_sel_v2'))||{};}catch{return {};}});
+  const curWeeklySelections=React.useMemo(()=>weeklySelections[month]||{},[weeklySelections,month]);
+  const setCurWeeklySelections=React.useCallback((updater)=>setWeeklySelections(prev=>({
+    ...prev,[month]:typeof updater==='function'?updater(prev[month]||{}):updater
+  })),[month]);
   const [assignmentViewDate,setAssignmentViewDate]=useState(null);
   const [weeklyPlanIdx,setWeeklyPlanIdx]=useState(0);
   const [weeklyPlanShowWeekend,setWeeklyPlanShowWeekend]=useState(false);
@@ -518,7 +522,7 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('sch_activities',JSON.stringify(activities));}catch{}},[activities]);
   useEffect(()=>{try{localStorage.setItem('sch_availability',JSON.stringify(availability));}catch{}},[availability]);
   useEffect(()=>{try{localStorage.setItem('sch_assignments',JSON.stringify(assignments));}catch{}},[assignments]);
-  useEffect(()=>{try{localStorage.setItem('sch_weekly_selections',JSON.stringify(weeklySelections));}catch{}},[weeklySelections]);
+  useEffect(()=>{try{localStorage.setItem('sch_weekly_sel_v2',JSON.stringify(weeklySelections));}catch{}},[weeklySelections]);
   useEffect(()=>{try{localStorage.setItem('sch_kat_courses',JSON.stringify(katCourses));}catch{}},[katCourses]);
   useEffect(()=>{try{localStorage.setItem('sch_selected_month',month);}catch{}},[month]);
   useEffect(()=>{try{localStorage.setItem('sch_boats',JSON.stringify(boats));}catch{}},[boats]);
@@ -603,7 +607,7 @@ function App(){
                 instructors, activities, availability, assignments, month,
                 boats, crmEvents, roomBoatMap, sheetSkills, inbox,
                 daylightStart, daylightEnd,
-                weeklySelections, katCourses,
+                weeklySelections:curWeeklySelections, katCourses,
                 _exportedAt: new Date().toISOString(),
                 _version: SCHEDULER_VERSION,
               };
@@ -633,7 +637,7 @@ function App(){
                     if(d.daylightStart)setDaylightStart(d.daylightStart);
                     if(d.daylightEnd)setDaylightEnd(d.daylightEnd);
                     if(d.month)setMonth(d.month);
-                    if(d.weeklySelections)setWeeklySelections(d.weeklySelections);
+                    if(d.weeklySelections)setWeeklySelections(prev=>({...prev,[d.month||month]:d.weeklySelections}));
                     if(d.katCourses)setKatCourses(d.katCourses);
                   }else{
                     if(d.instructors)setInstructors(p=>[...p,...d.instructors.filter(x=>!p.find(y=>y.id===x.id))]);
@@ -642,7 +646,7 @@ function App(){
                     if(d.crmEvents)setCrmEvents(p=>[...p,...(d.crmEvents||[]).filter(x=>!p.find(y=>y.id===x.id))]);
                     if(d.availability)setAvailability(p=>({...p,...d.availability}));
                     if(d.assignments)setAssignments(p=>({...p,...d.assignments}));
-                    if(d.weeklySelections)setWeeklySelections(p=>({...p,...d.weeklySelections}));
+                    if(d.weeklySelections)setWeeklySelections(p=>({...p,[d.month||month]:{...(p[d.month||month]||{}),...d.weeklySelections}}));
                     if(d.katCourses)setKatCourses(d.katCourses);
                   }
                   const counts=[];
@@ -673,10 +677,10 @@ function App(){
         {tab==='boatavail'&&<BoatAvailabilityTab boats={boats} crmEvents={crmEvents} setCrmEvents={setCrmEvents} roomBoatMap={roomBoatMap} setRoomBoatMap={setRoomBoatMap} month={month} showToast={showToast}/>}
         {tab==='schedule'&&<ScheduleTab instructors={instructors} activities={activities} boats={boats} availability={availability} setAvailability={setAvailability} assignments={assignments} setAssignments={setAssignments} month={month} crmEvents={crmEvents} roomBoatMap={roomBoatMap} showToast={showToast} allSkills={allSkills} daylightStart={daylightStart} daylightEnd={daylightEnd}/>}
         {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month} crmEvents={crmEvents}/>}
-        {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={weeklySelections} initDate={assignmentViewDate} setTab={setTab}/>}
+        {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={curWeeklySelections} initDate={assignmentViewDate} setTab={setTab}/>}
         {tab==='katamaran'&&<KatamaranWizard instructors={instructors} activities={activities} boats={boats} crmEvents={crmEvents} roomBoatMap={roomBoatMap} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
-        {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} katCourses={katCourses} setKatCourses={setKatCourses}/>}
-        {tab==='weeklyplan'&&<WeeklyPlanTab instructors={instructors} availability={availability} month={month} activities={activities} assignments={assignments} setTab={setTab} weeklySelections={weeklySelections} setWeeklySelections={setWeeklySelections} setAssignmentViewDate={setAssignmentViewDate} weekIdx={weeklyPlanIdx} setWeekIdx={setWeeklyPlanIdx} showWeekend={weeklyPlanShowWeekend} setShowWeekend={setWeeklyPlanShowWeekend}/>}
+        {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} katCourses={katCourses} setKatCourses={setKatCourses} weeklySelections={curWeeklySelections}/>}
+        {tab==='weeklyplan'&&<WeeklyPlanTab instructors={instructors} availability={availability} month={month} activities={activities} assignments={assignments} setTab={setTab} weeklySelections={curWeeklySelections} setWeeklySelections={setCurWeeklySelections} setAssignmentViewDate={setAssignmentViewDate} weekIdx={weeklyPlanIdx} setWeekIdx={setWeeklyPlanIdx} showWeekend={weeklyPlanShowWeekend} setShowWeekend={setWeeklyPlanShowWeekend}/>}
         {tab==='inbox'&&<InboxTab inbox={inbox} setInbox={setInbox} instructors={instructors} setInstructors={setInstructors} availability={availability} setAvailability={setAvailability} setAssignments={setAssignments} setMonth={setMonth} currentMonth={month} showToast={showToast}/>}
         </ErrorBoundary>
       </div>
@@ -6955,14 +6959,10 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
     return s;
   },[weekAllDays,instructors,availability,month]);
 
-  const BAND_ANCHORS={
-    morning:['07:00','08:00'],
-    midday: ['10:00','15:00'],
-    evening:['15:00'],
-  };
+  // getInstsBand: instructor overlaps with band if ANY hour in the band range is available
   const getInstsBand=(date,band)=>instructors.filter(inst=>{
     const avail=(availability&&availability[`${inst.id}_${month}`])||{};
-    return BAND_ANCHORS[band].some(h=>{
+    return BAND_HOURS[band].some(h=>{
       const v=avail[`${date}_${h}`];
       return v===true||v==='work';
     });
@@ -7355,7 +7355,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     const workIds=(availability?instructors.filter(inst=>HOURS.some(h=>(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`]==='work')).map(i=>i.id):[]);
     const assignedIds=(assignments?.[`schedule_${month}`]||[]).filter(a=>a.date===selDate&&a.instructorId).map(a=>a.instructorId);
     let allIds;
-    if(isWeekend){
+    if(isWeekend&&selIds.length===0){
       const availIds=availability?instructors.filter(inst=>HOURS.some(h=>{const v=(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`];return v===true||v==='work';})).map(i=>i.id):[];
       allIds=[...new Set([...selIds,...workIds,...assignedIds,...availIds])];
     }else{
@@ -7979,7 +7979,7 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
 // ═══════════════════════════════════════════════════════════════════════════
 // KATMANDU WIZARD
 // ═══════════════════════════════════════════════════════════════════════════
-function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast,katCourses,setKatCourses}){
+function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast,katCourses,setKatCourses,weeklySelections}){
   const courses=katCourses;
   const setCourses=setKatCourses;
   const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמנדו')||null,[activities]);
@@ -8135,7 +8135,8 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                   <tbody>
                     {dates.map((d,i)=>{
                       const stage=Math.min(course.startStage+i,5);
-                      const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,curSlot.start));
+                      const wkSel=(weeklySelections&&weeklySelections[d]!==undefined)?weeklySelections[d]:null;
+                      const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,curSlot.start)&&(wkSel===null||wkSel.includes(inst.id)));
                       const boatFree=isBoatFree(d,curSlot.start,course.id);
                       const isLast=i===dates.length-1;
                       const schedEntry=(scheduledByKatId[course.id]||{})[d];
