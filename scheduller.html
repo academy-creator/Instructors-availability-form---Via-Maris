@@ -140,6 +140,18 @@ const BAND_HOURS={morning:['07:00','08:00','09:00','10:00','11:00','12:00'],midd
 const BAND_LABELS={morning:'בוקר 7–13',midday:'אמצע 10–16',evening:'ערב 16–22'};
 const BAND_KEYS=['morning','midday','evening'];
 const PRIORITY_CHIP_COLORS={high:{bg:'#EEEDFE',color:'#3C3489',border:'#7F77DD'},medium:{bg:'#E1F5EE',color:'#085041',border:'#1D9E75'},low:{bg:'#FAEEDA',color:'#633806',border:'#BA7517'}};
+// Jewish holidays by month — {date, type:'erev'|'shabbaton', name}
+const JEWISH_HOLIDAYS={
+  '2026-09':[
+    {date:11,type:'erev',name:'ערב ראש השנה'},
+    {date:12,type:'shabbaton',name:"ראש השנה א'"},
+    {date:13,type:'shabbaton',name:"ראש השנה ב'"},
+    {date:20,type:'erev',name:'ערב יום כיפור'},
+    {date:21,type:'shabbaton',name:'יום כיפור'},
+    {date:25,type:'erev',name:'ערב סוכות'},
+    {date:26,type:'shabbaton',name:"סוכות א'"},
+  ],
+};
 
 const DEFAULT_SKILLS = [];
 const SHEET_ID = '12G0sbYsQzJyCYgLW4cRuSifPMulKgogRMl0JZJE1kGY';
@@ -147,7 +159,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.53';
+const SCHEDULER_VERSION = 'v6.64';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -602,10 +614,18 @@ function App(){
             style={{padding:'6px 12px',borderRadius:8,border:'1px solid rgba(255,255,255,.3)',background:'rgba(255,255,255,.15)',color:'#fff',fontSize:13}}/>
           <button className="btn btn-outline" style={{borderColor:'rgba(255,255,255,.3)',color:'#fff'}}
             onClick={()=>{
-              // FULL backup: include ALL state needed to restore the app, not just the obvious ones.
+              // Month-scoped backup: only export data for the current month.
+              const monthAssignments={[`schedule_${month}`]:assignments[`schedule_${month}`]||[]};
+              const monthAvailability=Object.fromEntries(Object.entries(availability).filter(([k])=>k.endsWith('_'+month)));
+              const monthCrmEvents=(crmEvents||[]).filter(e=>{
+                const d=e.startDate||e.date||'';
+                return d.startsWith(month);
+              });
               const data={
-                instructors, activities, availability, assignments, month,
-                boats, crmEvents, roomBoatMap, sheetSkills, inbox,
+                instructors, activities, month,
+                availability:monthAvailability,
+                assignments:monthAssignments,
+                boats, crmEvents:monthCrmEvents, roomBoatMap, sheetSkills, inbox,
                 daylightStart, daylightEnd,
                 weeklySelections:curWeeklySelections, katCourses,
                 _exportedAt: new Date().toISOString(),
@@ -615,6 +635,29 @@ function App(){
               const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`scheduler-backup-${month}.json`;a.click();
               showToast(`הנתונים יוצאו (${boats.length} ספינות · ${instructors.length} מדריכים · ${activities.length} פעילויות)`);
             }}>💾 ייצוא</button>
+          <button className="btn btn-outline" style={{borderColor:'rgba(255,200,0,.5)',color:'#ffe066',cursor:'pointer'}} onClick={()=>{
+            // Clean stale boat assignments: remove any assignment whose instructor has no availability in current month
+            const key=`schedule_${month}`;
+            const arr=Array.isArray(assignments[key])?assignments[key]:[];
+            const cleaned=arr.filter(s=>{
+              if(!s.instructorId||!s.boatId)return true;
+              const av=(availability&&availability[`${s.instructorId}_${month}`])||{};
+              return Object.values(av).some(v=>v===true||v==='work');
+            });
+            const removed=arr.length-cleaned.length;
+            setAssignments(prev=>({...prev,[key]:cleaned}));
+            // Also clean weekly selections: remove IDs with no current-month availability
+            const cleanedSel={};
+            Object.entries(curWeeklySelections).forEach(([date,ids])=>{
+              const validIds=(ids||[]).filter(id=>{
+                const av=(availability&&availability[`${id}_${month}`])||{};
+                return Object.values(av).some(v=>v===true||v==='work');
+              });
+              if(validIds.length>0)cleanedSel[date]=validIds;
+            });
+            setCurWeeklySelections(cleanedSel);
+            showToast(`🧹 נוקו ${removed} שיבוצים ישנים + בחירות שבועיות מחודשים קודמים`);
+          }}>🧹 נקה נתונים ישנים</button>
           <label className="btn btn-outline" style={{borderColor:'rgba(255,255,255,.3)',color:'#fff',cursor:'pointer'}}>
             📂 ייבוא
             <input type="file" accept=".json" style={{display:'none'}} onChange={e=>{
@@ -6949,6 +6992,13 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
   const allMonthDays=React.useMemo(()=>weeks.flat(),[weeks]);
   const allFridays=React.useMemo(()=>allMonthDays.filter(d=>d.dayOfWeek===5),[allMonthDays]);
   const allSaturdays=React.useMemo(()=>allMonthDays.filter(d=>d.dayOfWeek===6),[allMonthDays]);
+  const monthHolidays=React.useMemo(()=>JEWISH_HOLIDAYS[month]||[],[month]);
+  const getHoliday=React.useCallback((date)=>monthHolidays.find(h=>h.date===date)||null,[monthHolidays]);
+  // ערב חג days that fall on weekdays (not Fri/Sat) — join weekend section
+  const erevChagWeekdays=React.useMemo(()=>allMonthDays.filter(d=>{
+    const h=getHoliday(d.date);
+    return h&&h.type==='erev'&&d.dayOfWeek!==5&&d.dayOfWeek!==6;
+  }),[allMonthDays,getHoliday]);
   const weekAllDays=(weeks[safeIdx]||[]);
   const availableThisWeek=React.useMemo(()=>{
     const s=new Set();
@@ -7003,15 +7053,23 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
   const weekendPairs=React.useMemo(()=>{
     const pairs=[];
     const maxLen=Math.max(allFridays.length,allSaturdays.length);
-    for(let i=0;i<maxLen;i++) pairs.push({fri:allFridays[i]||null,sat:allSaturdays[i]||null});
+    for(let i=0;i<maxLen;i++){
+      const fri=allFridays[i]||null;
+      const sat=allSaturdays[i]||null;
+      const prevSatDate=i>0?(allSaturdays[i-1]||{}).date||0:0;
+      const nextSatDate=sat?sat.date+1:32;
+      // ערב חג weekdays that fall between prev Saturday+1 and next Saturday
+      const extras=erevChagWeekdays.filter(d=>d.date>prevSatDate&&d.date<nextSatDate);
+      pairs.push({fri,sat,extras});
+    }
     return pairs;
-  },[allFridays,allSaturdays]);
+  },[allFridays,allSaturdays,erevChagWeekdays]);
 
   const weekendAvailSet=React.useMemo(()=>{
     const s=new Set();
     instructors.forEach(inst=>{
       const av=(availability&&availability[`${inst.id}_${month}`])||{};
-      const allWE=[...allFridays,...allSaturdays];
+      const allWE=[...allFridays,...allSaturdays,...erevChagWeekdays];
       if(allWE.some(d=>HOURS.some(h=>{const v=av[`${d.date}_${h}`];return v===true||v==='work';}))){s.add(inst.id);}
     });
     return s;
@@ -7044,12 +7102,13 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
               {weekdays.map(d=>{
                 const nSel=(weeklySelections[d.date]||[]).length;
                 return(
-                  <th key={d.date} style={{fontSize:12,color:'var(--text)',padding:'6px 4px',borderBottom:'1px solid #e2e8f0',textAlign:'center',fontWeight:600}}>
+                  <th key={d.date} style={{fontSize:12,color:'var(--text)',padding:'6px 4px',borderBottom:'1px solid #e2e8f0',textAlign:'center',fontWeight:600,background:getHoliday(d.date)?.type==='shabbaton'?'#f1f5f9':getHoliday(d.date)?.type==='erev'?'#fffbeb':'transparent',opacity:getHoliday(d.date)?.type==='shabbaton'?0.7:1}}>
                     {d.dayName}<br/>
                     <span style={{fontSize:11,fontWeight:400,color:'var(--text-light)'}}>{d.date}/{mo}</span><br/>
-                    <button className="btn btn-primary btn-sm" style={{fontSize:10,padding:'2px 6px',marginTop:2}} onClick={()=>navigateDay(d.date)}>
+                    {getHoliday(d.date)&&<span style={{display:'block',fontSize:10,fontWeight:700,color:getHoliday(d.date).type==='shabbaton'?'#64748b':'#d97706',marginBottom:2}}>{getHoliday(d.date).type==='shabbaton'?'🕯 ':''}{getHoliday(d.date).name}</span>}
+                    {getHoliday(d.date)?.type!=='shabbaton'&&<button className="btn btn-primary btn-sm" style={{fontSize:10,padding:'2px 6px',marginTop:2}} onClick={()=>navigateDay(d.date)}>
                       {nSel>0?`📋 ${nSel} נבחרו`:'📋 לוח יומי'}
-                    </button>
+                    </button>}
                   </th>
                 );
               })}
@@ -7065,8 +7124,10 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
                 {weekdays.map(d=>{
                   const insts=getInstsBand(d.date,band);
                   return(
-                    <td key={d.date} style={{padding:4,verticalAlign:'top',borderTop:'1px solid #f1f5f9',minHeight:70}}>
-                      {insts.length===0
+                    <td key={d.date} style={{padding:4,verticalAlign:'top',borderTop:'1px solid #f1f5f9',minHeight:70,background:getHoliday(d.date)?.type==='shabbaton'?'#f8fafc':'transparent',pointerEvents:getHoliday(d.date)?.type==='shabbaton'?'none':'auto'}}>
+                      {getHoliday(d.date)?.type==='shabbaton'
+                        ?<span style={{fontSize:11,color:'#94a3b8',fontStyle:'italic'}}>שבתון</span>
+                        :insts.length===0
                         ?<span style={{fontSize:11,color:'#cbd5e1'}}>—</span>
                         :insts.map(inst=>{
                           const isSel=(weeklySelections[d.date]||[]).includes(inst.id);
@@ -7093,11 +7154,16 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
         <div>
           {weekendPairs.map((pair,pi)=>(
             <div key={pi} style={{marginBottom:20}}>
-              <div style={{fontSize:13,fontWeight:600,color:'var(--text-light)',marginBottom:10,paddingBottom:6,borderBottom:'1px solid #e2e8f0'}}>
-                סוף שבוע {pi+1}
+              <div style={{fontSize:13,fontWeight:600,color:'var(--text-light)',marginBottom:10,paddingBottom:6,borderBottom:'1px solid #e2e8f0',display:'flex',gap:8,alignItems:'center'}}>
+                <span>סוף שבוע {pi+1}</span>
+                {[pair.fri,pair.sat,...(pair.extras||[])].filter(Boolean).map(d=>getHoliday(d.date)).filter(Boolean).map((h,hi)=>(
+                  <span key={hi} style={{fontSize:11,fontWeight:700,color:h.type==='shabbaton'?'#64748b':'#d97706',background:h.type==='shabbaton'?'#f1f5f9':'#fffbeb',border:`1px solid ${h.type==='shabbaton'?'#cbd5e1':'#fcd34d'}`,borderRadius:4,padding:'1px 8px'}}>
+                    {h.type==='shabbaton'?'🕯 ':''}{h.name}
+                  </span>
+                ))}
               </div>
               <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
-                {[{day:pair.fri,label:'שישי'},{day:pair.sat,label:'שבת'}].map(({day,label})=>{
+                {[{day:pair.fri,label:'שישי',isErev:false},...(pair.extras||[]).map(d=>({day:d,label:'ערב חג',isErev:true})),{day:pair.sat,label:'שבת',isErev:false}].map(({day,label,isErev})=>{
                   if(!day)return null;
                   const dayInsts=instructors.filter(inst=>{
                     const av=(availability&&availability[`${inst.id}_${month}`])||{};
@@ -7107,6 +7173,7 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
                     <div key={label} style={{flex:'1 1 220px',minWidth:200,background:'#f8fafc',borderRadius:10,padding:'12px 14px',border:'0.5px solid #e2e8f0'}}>
                       <div style={{fontWeight:600,fontSize:13,marginBottom:10}}>
                         {label} {day.date}/{mo}
+                        {getHoliday(day.date)&&<span style={{display:'inline-block',marginRight:6,fontSize:11,fontWeight:700,color:getHoliday(day.date).type==='shabbaton'?'#64748b':'#d97706',background:getHoliday(day.date).type==='shabbaton'?'#f1f5f9':'#fffbeb',border:`1px solid ${getHoliday(day.date).type==='shabbaton'?'#cbd5e1':'#fcd34d'}`,borderRadius:4,padding:'1px 6px'}}>{getHoliday(day.date).type==='shabbaton'?'🕯 שבתון — ':''}{getHoliday(day.date).name}</span>}
                       </div>
                       {dayInsts.length===0?(
                         <div style={{fontSize:12,color:'#94a3b8',fontStyle:'italic'}}>אין מדריכים זמינים</div>
@@ -7332,6 +7399,27 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   useEffect(()=>{try{localStorage.setItem('asgn_view_date',String(selectedDateNum));}catch{}},[selectedDateNum]);
   useEffect(()=>{if(initDate)setSelectedDateNum(initDate);},[initDate]);
 
+  // Auto-remove stale boat assignments for the selected day.
+  // Only cleans if the month has ANY weekly planning done (to avoid wiping fresh months).
+  useEffect(()=>{
+    if(!selDate||!setAssignments||!weeklySelections)return;
+    const monthHasPlan=Object.keys(weeklySelections).length>0;
+    if(!monthHasPlan)return; // month has no planning at all — don't touch
+    const selIds=weeklySelections[selDate]||[];
+    const key=`schedule_${month}`;
+    setAssignments(prev=>{
+      const arr=Array.isArray(prev[key])?prev[key]:[];
+      const cleaned=arr.filter(s=>{
+        if(s.date!==selDate||!s.boatId)return true; // keep non-boat or other dates
+        if(!s.instructorId)return true; // keep unassigned slots
+        return selIds.includes(s.instructorId); // keep only weekly-selected
+      });
+      if(cleaned.length===arr.length)return prev; // no change
+      return {...prev,[key]:cleaned};
+    });
+  },[selDate,weeklySelections,month,setAssignments]);
+
+
   const [y,mNum]=month.split('-').map(Number);
   const lastDay=new Date(y,mNum,0).getDate();
   const selDate=Math.min(Math.max(selectedDateNum,1),lastDay);
@@ -7360,8 +7448,19 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const rawSched=assignments[`schedule_${month}`];
   const scheduledItems=useMemo(()=>{
     if(!rawSched)return[];
-    return (Array.isArray(rawSched)?rawSched:Object.values(rawSched)).filter(s=>s.date===selDate&&s.boatId);
-  },[rawSched,selDate]);
+    const selIds=weeklySelections?(weeklySelections[selDate]||[]):[];
+    return (Array.isArray(rawSched)?rawSched:Object.values(rawSched)).filter(s=>{
+      if(s.date!==selDate||!s.boatId)return false;
+      if(!s.instructorId)return true; // unassigned boat slots always show
+      // Block any instructor with no availability in the current month
+      const av=(availability&&availability[`${s.instructorId}_${month}`])||{};
+      const hasMonthAvail=Object.values(av).some(v=>v===true||v==='work');
+      if(!hasMonthAvail)return false;
+      // If weekly planning exists for this day, only show selected instructors
+      if(selIds.length>0&&!selIds.includes(s.instructorId))return false;
+      return true;
+    });
+  },[rawSched,selDate,weeklySelections,availability,month]);
 
   const crmDayEvents=useMemo(()=>crmEvents.filter(e=>(e.startDate||e.date)===dateStr),[crmEvents,dateStr]);
 
@@ -7395,20 +7494,16 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const layouts=useMemo(()=>{const m={};boats.forEach(b=>m[b.id]=buildLayout(eventsByBoat[b.id]||[]));return m;},[eventsByBoat]);
 
   const displayInsts=useMemo(()=>{
-    const dow=selDateObj.getDay();
-    const isWeekend=dow===5||dow===6;
     const selIds=weeklySelections?(weeklySelections[selDate]||[]):[];
-    const workIds=(availability?instructors.filter(inst=>HOURS.some(h=>(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`]==='work')).map(i=>i.id):[]);
-    const assignedIds=(assignments?.[`schedule_${month}`]||[]).filter(a=>a.date===selDate&&a.instructorId).map(a=>a.instructorId);
-    let allIds;
-    if(isWeekend&&selIds.length===0){
-      const availIds=availability?instructors.filter(inst=>HOURS.some(h=>{const v=(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`];return v===true||v==='work';})).map(i=>i.id):[];
-      allIds=[...new Set([...selIds,...workIds,...assignedIds,...availIds])];
-    }else{
-      allIds=[...new Set([...selIds,...workIds,...assignedIds])];
-    }
-    return instructors.filter(i=>allIds.includes(i.id)).sort((a,b)=>{const o={high:0,medium:1,low:2};return(o[a.priority]??1)-(o[b.priority]??1);});
-  },[instructors,availability,weeklySelections,month,selDate,selDateObj]);
+    // Safety filter: only show instructors who have availability in the CURRENT month.
+    // This prevents stale IDs from old backups/months from appearing.
+    const hasMonthAvail=(id)=>{
+      const av=(availability&&availability[`${id}_${month}`])||{};
+      return Object.values(av).some(v=>v===true||v==='work');
+    };
+    const validIds=selIds.filter(id=>hasMonthAvail(id));
+    return instructors.filter(i=>validIds.includes(i.id)).sort((a,b)=>{const o={high:0,medium:1,low:2};return(o[a.priority]??1)-(o[b.priority]??1);});
+  },[instructors,availability,weeklySelections,month,selDate]);
 
   // ── Weekly counters per boat type ──────────────────────────────────────────
   // Formula: weeklyTarget = (monthly - donePrevWeeks) / remainingWeekdays * weekdaysThisWeek
@@ -7761,7 +7856,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                   const hrs=HOURS.filter(h=>avail[`${selDate}_${h}`]===true||avail[`${selDate}_${h}`]==='work');
                   const win=hrs.length?`${parseInt(hrs[0])}:00–${parseInt(hrs[hrs.length-1])+1}:00`:'';
                   const c=PRIORITY_CHIP_COLORS[inst.priority]||{bg:'#F1EFE8',color:'#3C3489',border:'#888780'};
-                  const isAutoAdded=((assignments?.[`schedule_${month}`]||[]).some(a=>a.date===selDate&&a.instructorId===inst.id)||(availability&&HOURS.some(h=>(availability[`${inst.id}_${month}`]||{})[`${selDate}_${h}`]==='work')))&&!(weeklySelections?.[selDate]||[]).includes(inst.id);
+                  const isAutoAdded=false; // all shown instructors are weekly-selected
                   return(
                     <th key={inst.id} style={{minWidth:72,fontSize:11,padding:'5px 4px',textAlign:'center',background:c.bg,borderBottom:`3px solid ${c.border}`,color:c.color}}>
                       <div style={{fontWeight:700}}>{inst.name.split(' ').slice(0,2).map((w,i)=>i===0?w:w[0]+'.').join(' ')}{isAutoAdded?' ★':''}</div>
