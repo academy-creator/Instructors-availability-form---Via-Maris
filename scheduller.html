@@ -146,7 +146,7 @@ const JEWISH_HOLIDAYS={
     {date:11,type:'erev',name:'ערב ראש השנה'},
     {date:12,type:'shabbaton',name:"ראש השנה א'"},
     {date:13,type:'shabbaton',name:"ראש השנה ב'"},
-    {date:20,type:'erev',name:'ערב יום כיפור'},
+    {date:20,type:'shabbaton',name:'ערב יום כיפור'},
     {date:21,type:'shabbaton',name:'יום כיפור'},
     {date:25,type:'erev',name:'ערב סוכות'},
     {date:26,type:'shabbaton',name:"סוכות א'"},
@@ -159,7 +159,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.64';
+const SCHEDULER_VERSION = 'v6.83';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -276,14 +276,14 @@ const DEFAULT_ROOM_BOAT_MAP_BY_NAME = {
   '178': 'אסתר',
   '179': 'רוני',
   '182': 'כרמל גת',
+  '183': 'כפרה מיו',
 };
 // roomIds that should be silently dropped on import (classrooms / non-boat resources)
 // Rooms 11, 27, 181 are ignored entirely.
-// Rooms 4 (מגלן), 22 (מגלן — אותה כיתה), 24 (כיתה 3) — classrooms shown in daily calendar.
-const IGNORED_ROOM_IDS = new Set(['11','27','181']);
+// Room 4 (מגלן), 24 (כיתה 3) — classrooms shown in daily calendar. 22 and 26 ignored (outdoors).
+const IGNORED_ROOM_IDS = new Set(['11','27','181','22','26']);
 const CLASSROOM_NAMES_BY_ROOM_ID = {
   '4': 'מגלן',
-  '22': 'מגלן',
   '24': 'כיתה 3',
 };
 // Events whose TEXT contains any of these keywords are "out of office" — hide from classroom display
@@ -1843,6 +1843,7 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
   const selDateObj = new Date(y, mNum-1, selDate);
   const dayName = DAYS_HEB[selDateObj.getDay()];
   const dateStr = `${y}-${mNum.toString().padStart(2,'0')}-${selDate.toString().padStart(2,'0')}`;
+  const dayHoliday=((JEWISH_HOLIDAYS[month]||[]).find(h=>h.date===selDate))||null;
 
   // Hours grid: 06:00 - 22:00 by default
   const CAL_START_HOUR = 6;
@@ -2029,6 +2030,7 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
           <h2>📅 לוח יומי
             <span className="badge badge-primary" style={{marginRight:8,fontSize:14}}>{dateStr}</span>
             <span className="badge badge-info" style={{marginRight:4}}>{dayName}</span>
+            {dayHoliday&&<span style={{marginRight:6,fontSize:12,fontWeight:700,color:dayHoliday.type==='shabbaton'?'#64748b':'#d97706',background:dayHoliday.type==='shabbaton'?'#f1f5f9':'#fffbeb',border:`1px solid ${dayHoliday.type==='shabbaton'?'#cbd5e1':'#fcd34d'}`,borderRadius:4,padding:'2px 8px'}}>{dayHoliday.type==='shabbaton'?'🕯 ':''}{dayHoliday.name}</span>}
           </h2>
           <div style={{display:'flex',gap:8,alignItems:'center'}}>
             <input type="month" value={month} onChange={e=>setMonth&&setMonth(e.target.value)}
@@ -7009,8 +7011,22 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
     return s;
   },[weekAllDays,instructors,availability,month]);
 
+  // Map: dateNum → Set of instructorIds who have Katmandu assignments that day
+  const katByDay=React.useMemo(()=>{
+    const map={};
+    const sched=assignments[`schedule_${month}`]||[];
+    (Array.isArray(sched)?sched:Object.values(sched)).forEach(s=>{
+      if(!s._katCourseId&&s.source!=='katmandu_wizard')return;
+      if(!s.instructorId||!s.date)return;
+      if(!map[s.date])map[s.date]=new Set();
+      map[s.date].add(s.instructorId);
+    });
+    return map;
+  },[assignments,month]);
+
   // getInstsBand: instructor overlaps with band if ANY hour in the band range is available
   const getInstsBand=(date,band)=>instructors.filter(inst=>{
+    if(katByDay[date]?.has(inst.id))return true; // Katmandu assignment = working
     const avail=(availability&&availability[`${inst.id}_${month}`])||{};
     return BAND_HOURS[band].some(h=>{
       const v=avail[`${date}_${h}`];
@@ -7132,10 +7148,11 @@ function WeeklyPlanTab({instructors,availability,month,activities,assignments,se
                         :insts.map(inst=>{
                           const isSel=(weeklySelections[d.date]||[]).includes(inst.id);
                           const avail=availability[`${inst.id}_${month}`]||{};
-                          const hasWork=HOURS.some(h=>avail[`${d.date}_${h}`]==='work');
+                          const hasKat=!!(katByDay[d.date]?.has(inst.id));
+                          const hasWork=hasKat||HOURS.some(h=>avail[`${d.date}_${h}`]==='work');
                           return(
-                            <div key={inst.id} style={chipSt(inst.priority,isSel||hasWork)} onClick={()=>toggleInstSel(d.date,inst.id)} title={isSel?'לחץ להסרה':hasWork?'עובד — יוצג אוטומטית':'לחץ לבחירה'}>
-                              {hasWork?'★ ':isSel?'✓ ':''}{inst.name.split(' ').slice(0,2).map((w,i)=>i===0?w:w[0]+'.').join(' ')}
+                            <div key={inst.id} style={chipSt(inst.priority,isSel||hasWork)} onClick={()=>toggleInstSel(d.date,inst.id)} title={isSel?'לחץ להסרה':hasKat?'קטמנדו — יוצג אוטומטית':hasWork?'עובד — יוצג אוטומטית':'לחץ לבחירה'}>
+                              {hasKat?'🚤 ':hasWork?'★ ':isSel?'✓ ':''}{inst.name.split(' ').slice(0,2).map((w,i)=>i===0?w:w[0]+'.').join(' ')}
                             </div>
                           );
                         })
@@ -7412,6 +7429,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       const cleaned=arr.filter(s=>{
         if(s.date!==selDate||!s.boatId)return true; // keep non-boat or other dates
         if(!s.instructorId)return true; // keep unassigned slots
+        if(s._katCourseId||s.source==='katmandu_wizard')return true; // NEVER delete Katmandu
         return selIds.includes(s.instructorId); // keep only weekly-selected
       });
       if(cleaned.length===arr.length)return prev; // no change
@@ -7426,6 +7444,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const selDateObj=new Date(y,mNum-1,selDate);
   const dayName=DAYS_HEB[selDateObj.getDay()];
   const dateStr=`${y}-${mNum.toString().padStart(2,'0')}-${selDate.toString().padStart(2,'0')}`;
+  const dayHoliday=((JEWISH_HOLIDAYS[month]||[]).find(h=>h.date===selDate))||null;
 
   const CAL_START_HOUR=7,CAL_END_HOUR=22;
   const calHours=Array.from({length:CAL_END_HOUR-CAL_START_HOUR},(_,i)=>CAL_START_HOUR+i);
@@ -7452,6 +7471,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     return (Array.isArray(rawSched)?rawSched:Object.values(rawSched)).filter(s=>{
       if(s.date!==selDate||!s.boatId)return false;
       if(!s.instructorId)return true; // unassigned boat slots always show
+      if(s._katCourseId||s.source==='katmandu_wizard')return true; // Katmandu always visible
       // Block any instructor with no availability in the current month
       const av=(availability&&availability[`${s.instructorId}_${month}`])||{};
       const hasMonthAvail=Object.values(av).some(v=>v===true||v==='work');
@@ -7481,7 +7501,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     const layout={};for(let h=CAL_START_HOUR;h<CAL_END_HOUR;h++)layout[h]={type:'free'};
     const sorted=events.slice().sort((a,b)=>a.startMin-b.startMin);
     for(const ev of sorted){
-      const sh=Math.max(CAL_START_HOUR,Math.round(ev.startMin/60));
+      const sh=Math.max(CAL_START_HOUR,Math.floor(ev.startMin/60));
       const eh=Math.min(CAL_END_HOUR,Math.ceil(ev.endMin/60));
       if(eh<=sh)continue;const span=eh-sh;
       if(layout[sh].type==='free'){layout[sh]={type:'start',events:[ev],span};for(let h=sh+1;h<eh;h++)layout[h]={type:'continue'};}
@@ -7502,7 +7522,10 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       return Object.values(av).some(v=>v===true||v==='work');
     };
     const validIds=selIds.filter(id=>hasMonthAvail(id));
-    return instructors.filter(i=>validIds.includes(i.id)).sort((a,b)=>{const o={high:0,medium:1,low:2};return(o[a.priority]??1)-(o[b.priority]??1);});
+    // Also show instructors assigned via Katmandu on this specific day
+    const katInstIds=(rawSched?((Array.isArray(rawSched)?rawSched:Object.values(rawSched)).filter(s=>s.date===selDate&&(s._katCourseId||s.source==='katmandu_wizard')&&s.instructorId).map(s=>s.instructorId)):[]);
+    const allValidIds=[...new Set([...validIds,...katInstIds])];
+    return instructors.filter(i=>allValidIds.includes(i.id)).sort((a,b)=>{const o={high:0,medium:1,low:2};return(o[a.priority]??1)-(o[b.priority]??1);});
   },[instructors,availability,weeklySelections,month,selDate]);
 
   // ── Weekly counters per boat type ──────────────────────────────────────────
@@ -7599,6 +7622,14 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const [clsEnd,setClsEnd]=useState('10:00');
   const [clsInstId,setClsInstId]=useState('');
 
+  // ── View mode + Filters ──────────────────────────────────────────────────
+  const [advViewMode,setAdvViewMode]=useState('day'); // 'day'|'week'
+  const [filterInstId,setFilterInstId]=useState('');
+  const [filterBoatId,setFilterBoatId]=useState('');
+  const [filterActName,setFilterActName]=useState('');
+  const hasFilter=!!(filterInstId||filterBoatId||filterActName);
+  useEffect(()=>{if(!filterInstId&&!filterBoatId&&!filterActName&&advViewMode==='week')setAdvViewMode('day');},[filterInstId,filterBoatId,filterActName]);
+
   const classroomCrmEvents=useMemo(()=>{
     const map={};CLASSROOMS_LIST.forEach(cl=>map[cl]=[]);
     crmDayEvents.forEach(e=>{
@@ -7630,7 +7661,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       if(es<=ss)return;
       if(slots[ss]&&slots[ss].type==='free'){
         slots[ss]={type:'start',ev,span:es-ss};
-        for(let s=ss+1;s<es;s++){if(slots[s])slots[s]={type:'continue'};}
+        for(let s=ss+1;s<es;s++){if(slots[s])slots[s]={type:'continue',ev};}
       }
     });
     return slots;
@@ -7644,6 +7675,86 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     });
     return map;
   },[classroomCrmEvents,classroomManualEvents]);
+
+  // ── Filter-derived memos ─────────────────────────────────────────────────
+  // filterActOptions = boat types present in current boats list, ordered by TYPE_ORDER
+  const filterActOptions=useMemo(()=>{
+    const nm=s=>(s||'').replace(/["״]/g,'');
+    const present=new Set(boats.map(b=>nm(b.type||'')).filter(Boolean));
+    return TYPE_ORDER.filter(t=>present.has(nm(t)));
+  },[boats]);
+
+  const filteredBoats=useMemo(()=>{
+    const nm=s=>(s||'').replace(/["״]/g,'');
+    let res=sortedBoats;
+    if(filterBoatId)res=res.filter(b=>b.id===filterBoatId);
+    if(filterActName)res=res.filter(b=>nm(b.type||'')===nm(filterActName));
+    return res;
+  },[sortedBoats,filterBoatId,filterActName]);
+
+  const filteredEventsByBoat=useMemo(()=>{
+    if(!filterInstId&&!filterActName)return eventsByBoat;
+    const res={};
+    for(const [bid,evs] of Object.entries(eventsByBoat)){
+      res[bid]=evs.filter(ev=>{
+        if(filterInstId&&ev.instructorId!==filterInstId)return false;
+        if(filterActName){const _nm=s=>(s||'').replace(/["״]/g,'');const _bt=boats.find(b=>b.id===ev.boatId)?.type||'';if(_nm(_bt)!==_nm(filterActName))return false;}
+        return true;
+      });
+    }
+    return res;
+  },[eventsByBoat,filterInstId,filterActName]);
+
+  const filteredLayouts=useMemo(()=>{
+    const m={};boats.forEach(b=>m[b.id]=buildLayout(filteredEventsByBoat[b.id]||[]));return m;
+  },[filteredEventsByBoat,boats]);
+
+  // ── Week view data ───────────────────────────────────────────────────────
+  const weekData=useMemo(()=>{
+    if(advViewMode!=='week'||!hasFilter)return null;
+    const weekStart=new Date(selDateObj);
+    weekStart.setDate(weekStart.getDate()-weekStart.getDay());
+    const days=[];
+    for(let i=0;i<7;i++){
+      const d=new Date(weekStart);d.setDate(d.getDate()+i);
+      if(d.getMonth()!==mNum-1)continue;
+      const dn=d.getDate();
+      const ds=`${y}-${String(mNum).padStart(2,'0')}-${String(dn).padStart(2,'0')}`;
+      const dow=d.getDay();
+      if(dow===6)continue;
+      const evs=[];
+      const schedArr=Array.isArray(rawSched)?rawSched:[];
+      schedArr.filter(s=>s.date===dn&&s.boatId).forEach(s=>{
+        const ev={id:s.id,startMin:timeToMin(s.startHour),endMin:timeToMin(s.endHour),
+          title:s.activityName||'',subtitle:s.instructorName||'',
+          color:s.source==='manual'?'#5DCAA5':'#3b82f6',
+          textColor:s.source==='manual'?'#04342C':'#fff',
+          source:s.source||'schedule',boatId:s.boatId,boatName:s.boatName||'',instructorId:s.instructorId};
+        let ok=true;
+        if(filterBoatId&&ev.boatId!==filterBoatId)ok=false;
+        if(ok&&filterInstId&&ev.instructorId!==filterInstId)ok=false;
+        if(ok&&filterActName){const _nm=s=>(s||'').replace(/["״]/g,'');const _bt=boats.find(b=>b.id===ev.boatId)?.type||'';if(_nm(_bt)!==_nm(filterActName))ok=false;}
+        if(ok)evs.push(ev);
+      });
+      crmEvents.filter(e=>(e.startDate||e.date)===ds).forEach(e=>{
+        const bid=resolveBoatId(e.roomId);if(!bid)return;
+        const stripped=stripHtml(e.text);const inst=extractParens(e.text);
+        const ev={startMin:timeToMin(e.startHour),endMin:timeToMin(e.endHour||'23:59'),
+          title:stripped.split(/[(,]/)[0].trim()||'אירוע',subtitle:inst,
+          color:e.color||'#94a3b8',textColor:'#1e293b',source:'crm',boatId:bid,instructorId:null};
+        let ok=true;
+        if(filterBoatId&&ev.boatId!==filterBoatId)ok=false;
+        if(ok&&filterInstId){
+          const fi=instructors.find(ii=>ii.id===filterInstId);
+          if(fi){if(!ev.subtitle.includes(fi.name.split(' ')[0]))ok=false;}else ok=false;
+        }
+        if(ok&&filterActName){const _nm=s=>(s||'').replace(/["״]/g,'');const _bt=boats.find(b=>b.id===ev.boatId)?.type||'';if(_nm(_bt)!==_nm(filterActName))ok=false;}
+        if(ok)evs.push(ev);
+      });
+      days.push({dateN:dn,dateStr:ds,dayName:DAYS_HEB[dow],dow,evs:evs.sort((a,b)=>a.startMin-b.startMin),isSelected:dn===selDate});
+    }
+    return days.length?days:null;
+  },[advViewMode,hasFilter,selDateObj,y,mNum,rawSched,crmEvents,filterInstId,filterBoatId,filterActName,instructors,selDate,boats]);
 
   const openAddCls=(cls,h,half)=>{
     const sm=h*60+half*30;const em=sm+30;
@@ -7799,6 +7910,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
           <h2>✅ שיבוץ סופי
             <span className="badge badge-primary" style={{marginRight:8,fontSize:14}}>{dateStr}</span>
             <span className="badge badge-info" style={{marginRight:4}}>{dayName}</span>
+            {dayHoliday&&<span style={{marginRight:6,fontSize:12,fontWeight:700,color:dayHoliday.type==='shabbaton'?'#64748b':'#d97706',background:dayHoliday.type==='shabbaton'?'#f1f5f9':'#fffbeb',border:`1px solid ${dayHoliday.type==='shabbaton'?'#cbd5e1':'#fcd34d'}`,borderRadius:4,padding:'2px 8px'}}>{dayHoliday.type==='shabbaton'?'🕯 ':''}{dayHoliday.name}</span>}
           </h2>
           <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
             <button className="btn btn-outline btn-sm" onClick={()=>setTab('weeklyplan')}>← לוח שבועי</button>
@@ -7832,12 +7944,76 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
           </div>
         )}
         {displayInsts.length===0&&<div style={{padding:'8px 0',fontSize:12,color:'var(--text-light)'}}>בחר מדריכים בלוח השבועי כדי לראות את הזמינות שלהם כאן</div>}
+        {/* ── Filter + View toolbar ── */}
+        <div style={{display:'flex',gap:8,alignItems:'center',padding:'8px 0 6px',flexWrap:'wrap',borderTop:'1px solid #e2e8f0',marginTop:4}}>
+          <div style={{display:'flex',borderRadius:8,overflow:'hidden',border:'1px solid #e2e8f0',flexShrink:0}}>
+            {['day','week'].map(mode=>(
+              <button key={mode} disabled={mode==='week'&&!hasFilter}
+                onClick={()=>setAdvViewMode(mode)}
+                style={{padding:'5px 14px',fontSize:12,fontWeight:600,border:'none',
+                  cursor:mode==='week'&&!hasFilter?'not-allowed':'pointer',
+                  background:advViewMode===mode?'#3b82f6':'transparent',
+                  color:advViewMode===mode?'#fff':mode==='week'&&!hasFilter?'#cbd5e1':'var(--text)',
+                  opacity:mode==='week'&&!hasFilter?.5:1,transition:'all .15s'}}>
+                {mode==='day'?'יום':'שבוע'}
+              </button>
+            ))}
+          </div>
+          <select value={filterInstId} onChange={e=>setFilterInstId(e.target.value)}
+            style={{fontSize:12,padding:'5px 10px',borderRadius:6,border:`1.5px solid ${filterInstId?'#3b82f6':'#e2e8f0'}`,background:filterInstId?'#eff6ff':'var(--card)',color:'var(--text)',cursor:'pointer',outline:'none'}}>
+            <option value=''>👤 כל המדריכים</option>
+            {displayInsts.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+          </select>
+          <select value={filterBoatId} onChange={e=>setFilterBoatId(e.target.value)}
+            style={{fontSize:12,padding:'5px 10px',borderRadius:6,border:`1.5px solid ${filterBoatId?'#3b82f6':'#e2e8f0'}`,background:filterBoatId?'#eff6ff':'var(--card)',color:'var(--text)',cursor:'pointer',outline:'none'}}>
+            <option value=''>⛵ כל הסירות</option>
+            {sortedBoats.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          <select value={filterActName} onChange={e=>setFilterActName(e.target.value)}
+            style={{fontSize:12,padding:'5px 10px',borderRadius:6,border:`1.5px solid ${filterActName?'#3b82f6':'#e2e8f0'}`,background:filterActName?'#eff6ff':'var(--card)',color:'var(--text)',cursor:'pointer',outline:'none'}}>
+            <option value=''>🏄 סוג פעילות</option>
+            {filterActOptions.map(n=><option key={n} value={n}>{n}</option>)}
+          </select>
+          {hasFilter&&(
+            <button onClick={()=>{setFilterInstId('');setFilterBoatId('');setFilterActName('');setAdvViewMode('day');}}
+              style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid #fca5a5',background:'#fff',color:'#dc2626',cursor:'pointer',flexShrink:0,fontWeight:600}}>
+              נקה הכל ✕
+            </button>
+          )}
+          {hasFilter&&<span style={{fontSize:11,color:'var(--text-light)'}}>{filterBoatId?`⛵ ${sortedBoats.find(b=>b.id===filterBoatId)?.name||''}`:''}{filterInstId&&filterBoatId?' · ':''}{filterInstId?`👤 ${displayInsts.find(i=>i.id===filterInstId)?.name||''}`:''}{filterActName&&(filterInstId||filterBoatId)?' · ':''}{filterActName?`🏄 ${filterActName}`:''}</span>}
+        </div>
         <div style={{overflowX:'auto',marginTop:8}}>
+          {advViewMode==='week'&&weekData?(
+            <div style={{display:'flex',gap:10,padding:'4px 0',flexWrap:'wrap'}}>
+              {weekData.map(({dateN,dayName,isSelected,evs})=>{
+                const hol=((JEWISH_HOLIDAYS[month]||[]).find(hh=>hh.date===dateN))||null;
+                return(
+                  <div key={dateN} onClick={()=>{setSelectedDateNum(dateN);setAdvViewMode('day');}}
+                    style={{minWidth:160,maxWidth:220,border:`2px solid ${isSelected?'#3b82f6':'#e2e8f0'}`,borderRadius:10,padding:'8px 10px',cursor:'pointer',background:isSelected?'#eff6ff':'var(--card)',flexShrink:0,transition:'border-color .15s'}}>
+                    <div style={{fontWeight:700,fontSize:13,marginBottom:6,color:isSelected?'#3b82f6':'var(--text)',borderBottom:'1px solid #e2e8f0',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <span>{dayName} {dateN}</span>
+                      {hol&&<span style={{fontSize:9,color:'#d97706',background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:4,padding:'1px 4px'}}>{hol.name}</span>}
+                    </div>
+                    {evs.length===0
+                      ?<div style={{fontSize:11,color:'var(--text-light)',textAlign:'center',padding:'14px 0'}}>אין פעילויות</div>
+                      :evs.map((ev,i)=>(
+                        <div key={i} style={{background:ev.color,color:ev.textColor,borderRadius:5,padding:'4px 7px',marginBottom:4,fontSize:11,boxShadow:'0 1px 2px rgba(0,0,0,.1)'}}>
+                          <span dir="ltr" style={{fontSize:10,opacity:.8,fontVariantNumeric:'tabular-nums'}}>{fmtTime(ev.startMin)}–{fmtTime(ev.endMin)}</span>
+                          <div style={{fontWeight:600,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.title}</div>
+                          {ev.subtitle&&<div style={{fontSize:10,opacity:.85,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.subtitle}</div>}
+                        </div>
+                      ))
+                    }
+                  </div>
+                );
+              })}
+            </div>
+          ):(
           <table className="cal-day-table">
             <thead>
               <tr>
                 <th style={{width:50}}>שעה</th>
-                {sortedBoats.map(b=>(
+                {filteredBoats.map(b=>(
                   <th key={b.id} style={{minWidth:90,fontSize:12,padding:'8px 4px',textAlign:'center'}}>
                     <div style={{fontWeight:700}}>{b.name}</div>
                     <div style={{fontSize:10,color:'var(--text-light)',fontWeight:400}}>{b.type||''}</div>
@@ -7870,28 +8046,27 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
               {calHours.map(h=>(
                 <tr key={h} style={{height:36}}>
                   <td style={{fontSize:11,color:'var(--text-light)',padding:'4px 6px',whiteSpace:'nowrap',background:'#f8fafc',fontWeight:600,height:36,boxSizing:'border-box'}}>{h.toString().padStart(2,'0')}:00</td>
-                  {sortedBoats.map(b=>{
-                    const cell=layouts[b.id][h];
+                  {filteredBoats.map(b=>{
+                    const cell=filteredLayouts[b.id]?.[h];
                     if(cell?.type==='continue')return null;
                     if(cell?.type==='start'){
-                      const evs=cell.events||[];
+                      const evs=cell.events||[];const slotStartMin=h*60;const slotDurMin=cell.span*60;const n=evs.length;
                       return(
-                        <td key={b.id} rowSpan={cell.span} style={{padding:0,fontSize:11,verticalAlign:'top',height:cell.span*36,border:'1px solid rgba(0,0,0,.1)'}}>
-                          <div style={{display:'flex',flexDirection:'row',gap:1,height:'100%'}}>
-                            {evs.map((ev,i)=>(
+                        <td key={b.id} rowSpan={cell.span} style={{padding:0,fontSize:11,verticalAlign:'top',height:cell.span*36,border:'1px solid rgba(0,0,0,.1)',position:'relative'}}>
+                          {evs.map((ev,i)=>{const topPct=(ev.startMin-slotStartMin)/slotDurMin*100;const htPct=(ev.endMin-ev.startMin)/slotDurMin*100;
+                            return(
                               <div key={i}
                                 draggable={ev.source==='manual'}
                                 onDragStart={ev.source==='manual'?e=>{e.dataTransfer.setData('evid',ev.id);setDragEvId(ev.id);}:null}
                                 onDragEnd={()=>setDragEvId(null)}
                                 onClick={ev.id?e=>{e.stopPropagation();openEdit(ev);}:null}
                                 onDoubleClick={ev.id?e=>{e.stopPropagation();setEditModalItem(ev);}:null}
-                                style={{flex:1,background:ev.color,color:ev.textColor,padding:'4px 6px',borderRadius:3,minWidth:0,height:'100%',boxSizing:'border-box',overflow:'hidden',cursor:ev.id?'pointer':'default',border:ev.source==='manual'?'1.5px solid rgba(0,0,0,.12)':'none'}}>
+                                style={{position:'absolute',top:`${topPct}%`,height:`${htPct}%`,left:`${i/n*100}%`,width:`${100/n}%`,background:ev.color,color:ev.textColor,padding:'4px 6px',borderRadius:3,boxSizing:'border-box',overflow:'hidden',cursor:ev.id?'pointer':'default',border:ev.source==='manual'?'1.5px solid rgba(0,0,0,.12)':'none'}}>
                                 <div style={{fontSize:10,opacity:.85}}><span dir="ltr">{fmtTime(ev.startMin)}–{fmtTime(ev.endMin)}</span></div>
                                 <div style={{fontWeight:600,marginTop:2,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.title}</div>
                                 {ev.subtitle&&<div style={{fontSize:10,marginTop:2,opacity:.9,overflow:'hidden',textOverflow:'ellipsis'}}>{ev.subtitle}</div>}
                               </div>
-                            ))}
-                          </div>
+                            );})}
                         </td>
                       );
                     }
@@ -7906,14 +8081,17 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                           {[0,1].map(half=>{
                             const slotKey=h*2+half;
                             const cell=layout[slotKey]||{type:'free'};
-                            if(cell.type==='continue')return<div key={half} style={{flex:1,background:'rgba(16,185,129,.18)',borderTop:'0.5px solid #a7f3d0'}}/>;
+                            if(cell.type==='continue')return<div key={half} style={{flex:1,background:cell.ev?cell.ev.color:'rgba(16,185,129,.18)',opacity:.85,borderTop:'0.5px solid rgba(0,0,0,.05)'}}/>;
                             if(cell.type==='start'){
                               const ev=cell.ev;const editable=ev.source==='classroom_manual';
+                              const spanPx=cell.span*18;
                               return(
-                                <div key={half} style={{flex:1,background:ev.color,color:ev.textColor,padding:'1px 4px',overflow:'hidden',cursor:editable?'pointer':'default',borderTop:'0.5px solid rgba(0,0,0,.08)'}}
+                                <div key={half} style={{flex:1,background:ev.color,color:ev.textColor,overflow:'visible',position:'relative',cursor:editable?'pointer':'default',borderTop:'0.5px solid rgba(0,0,0,.08)'}}
                                   onClick={editable?()=>openEditCls(ev,cls):null}>
-                                  <div style={{fontSize:9,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.title}</div>
-                                  {ev.subtitle&&<div style={{fontSize:8,opacity:.85,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.subtitle}</div>}
+                                  <div style={{position:'absolute',top:0,left:0,right:0,height:spanPx,padding:'2px 4px',overflow:'hidden',pointerEvents:'none',zIndex:4,background:ev.color}}>
+                                    <div style={{fontSize:9,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.title}</div>
+                                    {ev.subtitle&&<div style={{fontSize:8,opacity:.85,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.subtitle}</div>}
+                                  </div>
                                 </div>
                               );
                             }
@@ -7943,6 +8121,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
               ))}
             </tbody>
           </table>
+          )}
         </div>
       </div>
     </div>
@@ -8287,11 +8466,37 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
       return sh<endH&&eh>startH;
     });
   };
+  const monthHols=JEWISH_HOLIDAYS[month]||[];
+  const isShabbaton=(d)=>monthHols.some(h=>h.date===d&&h.type==='shabbaton');
+  const getDayHoliday=(d)=>monthHols.find(h=>h.date===d)||null;
+  // Returns only active (non-shabbaton) dates — used for scheduling
   const getCourseDates=(course)=>{
     if(!course.startDate) return [];
     const entry=allDates.find(e=>e.date===course.startDate);
     if(!entry) return [];
-    return (dowGroups[entry.dow]||[]).filter(d=>d>=course.startDate).slice(0,6-course.startStage);
+    const needed=6-course.startStage;
+    const result=[];
+    for(const d of (dowGroups[entry.dow]||[]).filter(d=>d>=course.startDate)){
+      if(result.length>=needed)break;
+      if(!isShabbaton(d))result.push(d);
+    }
+    return result;
+  };
+  // Returns all rows including שבתון-skip markers — used for display only
+  const getCourseDisplayRows=(course)=>{
+    if(!course.startDate) return [];
+    const entry=allDates.find(e=>e.date===course.startDate);
+    if(!entry) return [];
+    const needed=6-course.startStage;
+    const rows=[];
+    let count=0;
+    for(const d of (dowGroups[entry.dow]||[]).filter(d=>d>=course.startDate)){
+      if(count>=needed)break;
+      const hol=getDayHoliday(d);
+      if(hol?.type==='shabbaton'){rows.push({date:d,skip:true,holiday:hol});}
+      else{rows.push({date:d,skip:false,holiday:hol||null});count++;}
+    }
+    return rows;
   };
   const scheduledByKatId=React.useMemo(()=>{
     const map={};
@@ -8299,6 +8504,16 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
       if(!item._katCourseId) return;
       if(!map[item._katCourseId]) map[item._katCourseId]={};
       map[item._katCourseId][item.date]={instId:item.instructorId||null,instName:item.instructorName||null};
+    });
+    return map;
+  },[assignments,month]);
+  // Map: dateNum → Set<instructorId> already assigned to ANY Katmandu course that day
+  const katInstByDay=React.useMemo(()=>{
+    const map={};
+    (assignments['schedule_'+month]||[]).forEach(s=>{
+      if(!s._katCourseId||!s.instructorId||!s.date)return;
+      if(!map[s.date])map[s.date]={};
+      map[s.date][s.instructorId]=s._katCourseId;
     });
     return map;
   },[assignments,month]);
@@ -8396,18 +8611,31 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                     </tr>
                   </thead>
                   <tbody>
-                    {dates.map((d,i)=>{
-                      const stage=Math.min(course.startStage+i,5);
-                      const wkSel=(weeklySelections&&weeklySelections[d]!==undefined)?weeklySelections[d]:null;
-                      const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,curSlot.start)&&(wkSel===null||wkSel.includes(inst.id)));
+                    {getCourseDisplayRows(course).map((row,i)=>{
+                      const{date:d,skip,holiday:rowHol}=row;
+                      if(skip)return(
+                        <tr key={d} style={{background:'#f1f5f9',opacity:0.75}}>
+                          <td style={{padding:'4px',fontWeight:500,whiteSpace:'nowrap',fontSize:11,color:'#64748b'}}>{d}/{mNum.toString().padStart(2,'0')}</td>
+                          <td colSpan={3} style={{padding:'4px',fontSize:10,color:'#64748b',fontStyle:'italic'}}>🕯 {rowHol?.name||'שבתון'} — שבוע מדולג, הקורס מתארך</td>
+                        </tr>
+                      );
+                      const activeIdx=getCourseDisplayRows(course).filter((r,j)=>j<i&&!r.skip).length;
+                      const stage=Math.min(course.startStage+activeIdx,5);
+                      // Katmandu wizard: show all qualified+available instructors regardless of weekly plan
+                      const availAndQual=instructors.filter(inst=>isQual(inst)&&isAvail3h(inst,d,curSlot.start));
                       const boatFree=isBoatFree(d,curSlot.start,course.id);
-                      const isLast=i===dates.length-1;
+                      const isLast=activeIdx===dates.length-1;
                       const schedEntry=(scheduledByKatId[course.id]||{})[d];
                       const selInstId=schedEntry?.instId||(course.instSel||{})[d]||'';
                       const schedName=schedEntry?.instName||null;
+                      // Warn if selected instructor already assigned to ANOTHER Katmandu course that day
+                      const dupWarn=selInstId&&katInstByDay[d]&&katInstByDay[d][selInstId]&&String(katInstByDay[d][selInstId])!==String(course.id);
                       return(
-                        <tr key={d} style={{borderBottom:isLast?'none':'0.5px solid var(--border)'}}>
-                          <td style={{padding:'4px',fontWeight:500,whiteSpace:'nowrap',fontSize:11}}>{d}/{mNum.toString().padStart(2,'0')}</td>
+                        <tr key={d} style={{borderBottom:isLast?'none':'0.5px solid var(--border)',background:rowHol?.type==='erev'?'#fffbeb':'transparent'}}>
+                          <td style={{padding:'4px',fontWeight:500,whiteSpace:'nowrap',fontSize:11}}>
+                            {d}/{mNum.toString().padStart(2,'0')}
+                            {rowHol?.type==='erev'&&<span style={{display:'block',fontSize:9,color:'#d97706',fontWeight:600}}>{rowHol.name}</span>}
+                          </td>
                           <td style={{padding:'4px',whiteSpace:'nowrap'}}>
                             <span style={{fontSize:10,padding:'1px 6px',borderRadius:8,background:STAGE_COLORS[stage],color:STAGE_TEXT[stage]}}>{stage}</span>
                           </td>
@@ -8415,10 +8643,11 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
                             {boatFree?<span style={{color:'#16a34a'}}>פנויה</span>:<span style={{color:'#dc2626',fontWeight:500}}>תפוסה</span>}
                           </td>
                           <td style={{padding:'4px',minWidth:90}}>
-                            <select value={selInstId} onChange={e=>updInstSel(course.id,d,e.target.value)} style={{fontSize:10,padding:'2px 4px',borderRadius:4,border:'1px solid var(--border)',width:'100%'}}>
+                            <select value={selInstId} onChange={e=>updInstSel(course.id,d,e.target.value)} style={{fontSize:10,padding:'2px 4px',borderRadius:4,border:dupWarn?'1.5px solid #f59e0b':'1px solid var(--border)',width:'100%'}}>
                               <option value=''>— בחר —</option>
                               {availAndQual.map(inst=><option key={inst.id} value={inst.id}>{inst.name.split(' ').slice(0,2).join(' ')}</option>)}
                             </select>
+                            {dupWarn&&<span style={{fontSize:9,color:'#d97706',display:'block'}}>⚠ מדריך זה כבר משובץ לקטמנדו ביום זה</span>}
                             {availAndQual.length===0&&!schedName&&<span style={{fontSize:9,color:'#dc2626'}}>⚠ אין זמינים</span>}
                             {course.assigned&&schedName&&<span style={{fontSize:9,color:'#16a34a',marginRight:2}}>✓ {schedName}</span>}
                           </td>
