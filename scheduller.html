@@ -159,7 +159,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.83';
+const SCHEDULER_VERSION = 'v6.87';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -538,6 +538,93 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('sch_kat_courses',JSON.stringify(katCourses));}catch{}},[katCourses]);
   useEffect(()=>{try{localStorage.setItem('sch_selected_month',month);}catch{}},[month]);
   useEffect(()=>{try{localStorage.setItem('sch_boats',JSON.stringify(boats));}catch{}},[boats]);
+
+  // ── Change Log ───────────────────────────────────────────────────────────
+  const [changeLog,setChangeLog]=useState([]);
+  // Use a ref so effects always call the latest version without re-subscribing
+  const _addLog=useRef(null);
+  _addLog.current=(entry)=>{
+    const ts=new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    setChangeLog(prev=>[{id:Date.now()+Math.random(),ts,...entry},...prev].slice(0,500));
+  };
+  const _prevAss=useRef(null);
+  const _prevAvail=useRef(null);
+  const _prevInsts=useRef(null);
+  const _prevBoats=useRef(null);
+  const _prevActs=useRef(null);
+
+  // Watch assignments
+  useEffect(()=>{
+    if(!_prevAss.current){_prevAss.current=assignments;return;}
+    const prev=_prevAss.current;
+    Object.keys({...prev,...assignments}).filter(k=>k.startsWith('schedule_')).forEach(key=>{
+      const mo=key.replace('schedule_','');
+      const pArr=Array.isArray(prev[key])?prev[key]:[];
+      const nArr=Array.isArray(assignments[key])?assignments[key]:[];
+      nArr.filter(n=>!pArr.find(p=>p.id===n.id)).forEach(item=>_addLog.current({
+        type:'assignment',action:'הוסף',icon:'📅',
+        detail:`${item.activityName||''}${item.boatName?' | '+item.boatName:''}${item.instructorName?' | '+item.instructorName:''} | יום ${item.date||'?'} ${item.startHour||''}${item.endHour?'–'+item.endHour:''}`,month:mo
+      }));
+      pArr.filter(p=>!nArr.find(n=>n.id===p.id)).forEach(item=>_addLog.current({
+        type:'assignment',action:'הוסר',icon:'📅',
+        detail:`${item.activityName||''}${item.boatName?' | '+item.boatName:''} | יום ${item.date||'?'}`,month:mo
+      }));
+      nArr.forEach(n=>{
+        const p=pArr.find(pp=>pp.id===n.id);
+        if(p&&JSON.stringify(p)!==JSON.stringify(n))_addLog.current({
+          type:'assignment',action:'עודכן',icon:'📅',
+          detail:`${n.activityName||''}${n.boatName?' | '+n.boatName:''} | יום ${n.date||'?'} ${n.startHour||''}${n.endHour?'–'+n.endHour:''}`,month:mo
+        });
+      });
+    });
+    _prevAss.current=assignments;
+  },[assignments]);
+
+  // Watch availability
+  useEffect(()=>{
+    if(!_prevAvail.current){_prevAvail.current=availability;return;}
+    const prev=_prevAvail.current;
+    Object.keys({...prev,...availability}).forEach(key=>{
+      if(JSON.stringify(prev[key])===JSON.stringify(availability[key]))return;
+      const [instId]=key.split('_');
+      const inst=instructors.find(i=>i.id===instId);
+      const pSlots=prev[key]||{};const nSlots=availability[key]||{};
+      const changed=Object.keys({...pSlots,...nSlots}).filter(k=>pSlots[k]!==nSlots[k]).length;
+      if(changed>0)_addLog.current({type:'availability',action:'עודכן',icon:'🕐',detail:`${inst?.name||instId} | ${changed} שעות שונו`});
+    });
+    _prevAvail.current=availability;
+  },[availability,instructors]);
+
+  // Watch instructors
+  useEffect(()=>{
+    if(!_prevInsts.current){_prevInsts.current=instructors;return;}
+    const prev=_prevInsts.current;
+    instructors.filter(n=>!prev.find(p=>p.id===n.id)).forEach(i=>_addLog.current({type:'instructor',action:'נוסף',icon:'👤',detail:i.name}));
+    prev.filter(p=>!instructors.find(n=>n.id===p.id)).forEach(i=>_addLog.current({type:'instructor',action:'הוסר',icon:'👤',detail:i.name}));
+    instructors.forEach(n=>{const p=prev.find(pp=>pp.id===n.id);if(p&&JSON.stringify(p)!==JSON.stringify(n))_addLog.current({type:'instructor',action:'עודכן',icon:'👤',detail:n.name});});
+    _prevInsts.current=instructors;
+  },[instructors]);
+
+  // Watch boats
+  useEffect(()=>{
+    if(!_prevBoats.current){_prevBoats.current=boats;return;}
+    const prev=_prevBoats.current;
+    boats.filter(n=>!prev.find(p=>p.id===n.id)).forEach(b=>_addLog.current({type:'boat',action:'נוסף',icon:'⛵',detail:b.name}));
+    prev.filter(p=>!boats.find(n=>n.id===p.id)).forEach(b=>_addLog.current({type:'boat',action:'הוסר',icon:'⛵',detail:b.name}));
+    boats.forEach(n=>{const p=prev.find(pp=>pp.id===n.id);if(p&&JSON.stringify(p)!==JSON.stringify(n))_addLog.current({type:'boat',action:'עודכן',icon:'⛵',detail:n.name});});
+    _prevBoats.current=boats;
+  },[boats]);
+
+  // Watch activities
+  useEffect(()=>{
+    if(!_prevActs.current){_prevActs.current=activities;return;}
+    const prev=_prevActs.current;
+    activities.filter(n=>!prev.find(p=>p.id===n.id)).forEach(a=>_addLog.current({type:'activity',action:'נוסף',icon:'🏄',detail:a.name}));
+    prev.filter(p=>!activities.find(n=>n.id===p.id)).forEach(a=>_addLog.current({type:'activity',action:'הוסר',icon:'🏄',detail:a.name}));
+    activities.forEach(n=>{const p=prev.find(pp=>pp.id===n.id);if(p&&JSON.stringify(p)!==JSON.stringify(n))_addLog.current({type:'activity',action:'עודכן',icon:'🏄',detail:n.name});});
+    _prevActs.current=activities;
+  },[activities]);
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(()=>{
     if (!boats.length) return;
     let changed = false;
@@ -719,7 +806,7 @@ function App(){
         {tab==='availability'&&<AvailabilityTab instructors={instructors} availability={availability} setAvailability={setAvailability} month={month} showToast={showToast} lastAppliedId={assignments._lastAppliedInstructor}/>}
         {tab==='boatavail'&&<BoatAvailabilityTab boats={boats} crmEvents={crmEvents} setCrmEvents={setCrmEvents} roomBoatMap={roomBoatMap} setRoomBoatMap={setRoomBoatMap} month={month} showToast={showToast}/>}
         {tab==='schedule'&&<ScheduleTab instructors={instructors} activities={activities} boats={boats} availability={availability} setAvailability={setAvailability} assignments={assignments} setAssignments={setAssignments} month={month} crmEvents={crmEvents} roomBoatMap={roomBoatMap} showToast={showToast} allSkills={allSkills} daylightStart={daylightStart} daylightEnd={daylightEnd}/>}
-        {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month} crmEvents={crmEvents}/>}
+        {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month} crmEvents={crmEvents} changeLog={changeLog} clearLog={()=>setChangeLog([])}/>}
         {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={curWeeklySelections} initDate={assignmentViewDate} setTab={setTab}/>}
         {tab==='katamaran'&&<KatamaranWizard instructors={instructors} activities={activities} boats={boats} crmEvents={crmEvents} roomBoatMap={roomBoatMap} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
         {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} katCourses={katCourses} setKatCourses={setKatCourses} weeklySelections={curWeeklySelections}/>}
@@ -6029,7 +6116,7 @@ function InstructorExportModal({stat,month,onClose}){
   );
 }
 
-function StatsTab({instructors,activities,boats,availability,assignments,month,crmEvents=[]}){
+function StatsTab({instructors,activities,boats,availability,assignments,month,crmEvents=[],changeLog=[],clearLog=()=>{}}){
   // Use the NEW schedule data: assignments[`schedule_${month}`] = array of items
   const rawSchedule = assignments[`schedule_${month}`];
   const schedule = Array.isArray(rawSchedule) ? rawSchedule : [];
@@ -6043,6 +6130,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month,c
   const hidePopup=()=>setPopup(null);
 
   const [exportModal,setExportModal]=React.useState(null);
+  const [showLog,setShowLog]=React.useState(false);
 
   const extractCrmName=(text)=>{
     if(!text) return null;
@@ -6186,6 +6274,10 @@ function StatsTab({instructors,activities,boats,availability,assignments,month,c
           <div className="number" style={{color:fillPct===100?'var(--success)':fillPct>=70?'var(--warning)':'var(--danger)'}}>{fillPct}%</div>
           <div className="label">אחוז מילוי</div>
         </div>
+        <div className="stat-card" style={{cursor:'pointer',background:showLog?'var(--primary)':'var(--card)',color:showLog?'#fff':'var(--text)',border:showLog?'none':'0.5px solid #e2e8f0',transition:'all .2s'}} onClick={()=>setShowLog(v=>!v)}>
+          <div className="number" style={{fontSize:18,color:showLog?'#fff':'var(--primary)'}}>{changeLog.length}</div>
+          <div className="label" style={{color:showLog?'rgba(255,255,255,.85)':'var(--text-light)'}}>📋 יומן שינויים</div>
+        </div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
         <div className="card">
@@ -6277,6 +6369,45 @@ function StatsTab({instructors,activities,boats,availability,assignments,month,c
         </div>
       );})()}
       {exportModal&&<InstructorExportModal stat={exportModal} month={month} onClose={()=>setExportModal(null)}/>}
+      {/* ── Change Log Drawer ── */}
+      {showLog&&(
+        <div style={{position:'fixed',top:0,right:0,bottom:0,width:380,background:'var(--card,#fff)',boxShadow:'-6px 0 32px rgba(0,0,0,.18)',zIndex:1000,display:'flex',flexDirection:'column',borderLeft:'1px solid #e2e8f0'}} dir="rtl">
+          <div style={{padding:'12px 16px',borderBottom:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--primary)',color:'#fff',flexShrink:0}}>
+            <span style={{fontWeight:700,fontSize:14}}>📋 יומן שינויים</span>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <span style={{fontSize:12,opacity:.8}}>{changeLog.length} רשומות</span>
+              <button onClick={()=>setShowLog(false)} style={{background:'rgba(255,255,255,.2)',border:'none',color:'#fff',fontSize:16,cursor:'pointer',borderRadius:6,width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>✕</button>
+            </div>
+          </div>
+          {changeLog.length===0
+            ?<div style={{padding:32,color:'var(--text-light)',textAlign:'center',fontSize:13}}>
+               <div style={{fontSize:32,marginBottom:8}}>📭</div>
+               אין שינויים עדיין בסשן הנוכחי
+             </div>
+            :<div style={{overflowY:'auto',flex:1}}>
+              {changeLog.map((entry,i)=>{
+                const actionColor=entry.action==='הוסר'?{bg:'#fef2f2',text:'#dc2626'}:entry.action==='הוסף'?{bg:'#f0fdf4',text:'#16a34a'}:{bg:'#eff6ff',text:'#2563eb'};
+                return(
+                  <div key={entry.id} style={{padding:'8px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',gap:10,alignItems:'flex-start',background:i%2===0?'transparent':'rgba(0,0,0,.012)'}}>
+                    <span style={{fontSize:16,flexShrink:0,marginTop:2}}>{entry.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:3,flexWrap:'wrap'}}>
+                        <span style={{fontSize:11,fontWeight:700,color:actionColor.text,background:actionColor.bg,padding:'1px 7px',borderRadius:4,flexShrink:0}}>{entry.action}</span>
+                        {entry.month&&<span style={{fontSize:10,color:'var(--text-light)',flexShrink:0}}>{entry.month}</span>}
+                        <span style={{fontSize:10,color:'var(--text-light)',marginRight:'auto'}}>{entry.ts}</span>
+                      </div>
+                      <div style={{fontSize:12,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',direction:'rtl'}} title={entry.detail}>{entry.detail}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+          <div style={{padding:'10px 14px',borderTop:'1px solid #e2e8f0',flexShrink:0,display:'flex',gap:8}}>
+            <button onClick={clearLog} style={{flex:1,fontSize:12,padding:'7px',borderRadius:6,border:'1px solid #fca5a5',background:'#fff',cursor:'pointer',color:'#dc2626',fontWeight:600}}>🗑 נקה יומן</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -7606,6 +7737,16 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
 
   const prevDay=()=>setSelectedDateNum(Math.max(1,selDate-1));
   const nextDay=()=>setSelectedDateNum(Math.min(lastDay,selDate+1));
+  const prevWeek=()=>{
+    const d=new Date(y,mNum-1,selDate);d.setDate(d.getDate()-7);
+    if(d.getMonth()===mNum-1)setSelectedDateNum(d.getDate());
+    else setSelectedDateNum(1);
+  };
+  const nextWeek=()=>{
+    const d=new Date(y,mNum-1,selDate);d.setDate(d.getDate()+7);
+    if(d.getMonth()===mNum-1)setSelectedDateNum(d.getDate());
+    else setSelectedDateNum(lastDay);
+  };
 
   const [dlg,setDlg]=useState(null);
   const [dlgActId,setDlgActId]=useState('');
@@ -7626,9 +7767,10 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const [advViewMode,setAdvViewMode]=useState('day'); // 'day'|'week'
   const [filterInstId,setFilterInstId]=useState('');
   const [filterBoatId,setFilterBoatId]=useState('');
-  const [filterActName,setFilterActName]=useState('');
-  const hasFilter=!!(filterInstId||filterBoatId||filterActName);
-  useEffect(()=>{if(!filterInstId&&!filterBoatId&&!filterActName&&advViewMode==='week')setAdvViewMode('day');},[filterInstId,filterBoatId,filterActName]);
+  const [filterActName,setFilterActName]=useState('');   // boat-type category filter
+  const [filterActSpecific,setFilterActSpecific]=useState(''); // specific activity name filter
+  const hasFilter=!!(filterInstId||filterBoatId||filterActName||filterActSpecific);
+  useEffect(()=>{if(!filterInstId&&!filterBoatId&&!filterActName&&!filterActSpecific&&advViewMode==='week')setAdvViewMode('day');},[filterInstId,filterBoatId,filterActName,filterActSpecific]);
 
   const classroomCrmEvents=useMemo(()=>{
     const map={};CLASSROOMS_LIST.forEach(cl=>map[cl]=[]);
@@ -7684,6 +7826,12 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     return TYPE_ORDER.filter(t=>present.has(nm(t)));
   },[boats]);
 
+  const filterActSpecificOptions=useMemo(()=>{
+    const names=new Set();
+    (Array.isArray(rawSched)?rawSched:Object.values(rawSched||{})).forEach(s=>s.activityName&&names.add(s.activityName));
+    return [...names].sort((a,b)=>a.localeCompare(b,'he'));
+  },[rawSched]);
+
   const filteredBoats=useMemo(()=>{
     const nm=s=>(s||'').replace(/["״]/g,'');
     let res=sortedBoats;
@@ -7693,17 +7841,18 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   },[sortedBoats,filterBoatId,filterActName]);
 
   const filteredEventsByBoat=useMemo(()=>{
-    if(!filterInstId&&!filterActName)return eventsByBoat;
+    if(!filterInstId&&!filterActName&&!filterActSpecific)return eventsByBoat;
     const res={};
     for(const [bid,evs] of Object.entries(eventsByBoat)){
       res[bid]=evs.filter(ev=>{
         if(filterInstId&&ev.instructorId!==filterInstId)return false;
         if(filterActName){const _nm=s=>(s||'').replace(/["״]/g,'');const _bt=boats.find(b=>b.id===ev.boatId)?.type||'';if(_nm(_bt)!==_nm(filterActName))return false;}
+        if(filterActSpecific&&(ev.title||'')!==filterActSpecific)return false;
         return true;
       });
     }
     return res;
-  },[eventsByBoat,filterInstId,filterActName]);
+  },[eventsByBoat,filterInstId,filterActName,filterActSpecific]);
 
   const filteredLayouts=useMemo(()=>{
     const m={};boats.forEach(b=>m[b.id]=buildLayout(filteredEventsByBoat[b.id]||[]));return m;
@@ -7721,7 +7870,6 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       const dn=d.getDate();
       const ds=`${y}-${String(mNum).padStart(2,'0')}-${String(dn).padStart(2,'0')}`;
       const dow=d.getDay();
-      if(dow===6)continue;
       const evs=[];
       const schedArr=Array.isArray(rawSched)?rawSched:[];
       schedArr.filter(s=>s.date===dn&&s.boatId).forEach(s=>{
@@ -7734,6 +7882,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
         if(filterBoatId&&ev.boatId!==filterBoatId)ok=false;
         if(ok&&filterInstId&&ev.instructorId!==filterInstId)ok=false;
         if(ok&&filterActName){const _nm=s=>(s||'').replace(/["״]/g,'');const _bt=boats.find(b=>b.id===ev.boatId)?.type||'';if(_nm(_bt)!==_nm(filterActName))ok=false;}
+        if(ok&&filterActSpecific&&(ev.title||'')!==filterActSpecific)ok=false;
         if(ok)evs.push(ev);
       });
       crmEvents.filter(e=>(e.startDate||e.date)===ds).forEach(e=>{
@@ -7749,12 +7898,13 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
           if(fi){if(!ev.subtitle.includes(fi.name.split(' ')[0]))ok=false;}else ok=false;
         }
         if(ok&&filterActName){const _nm=s=>(s||'').replace(/["״]/g,'');const _bt=boats.find(b=>b.id===ev.boatId)?.type||'';if(_nm(_bt)!==_nm(filterActName))ok=false;}
+        if(ok&&filterActSpecific)ok=false; // CRM events have no specific activityName — skip them when filterActSpecific active
         if(ok)evs.push(ev);
       });
       days.push({dateN:dn,dateStr:ds,dayName:DAYS_HEB[dow],dow,evs:evs.sort((a,b)=>a.startMin-b.startMin),isSelected:dn===selDate});
     }
     return days.length?days:null;
-  },[advViewMode,hasFilter,selDateObj,y,mNum,rawSched,crmEvents,filterInstId,filterBoatId,filterActName,instructors,selDate,boats]);
+  },[advViewMode,hasFilter,selDateObj,y,mNum,rawSched,crmEvents,filterInstId,filterBoatId,filterActName,filterActSpecific,instructors,selDate,boats]);
 
   const openAddCls=(cls,h,half)=>{
     const sm=h*60+half*30;const em=sm+30;
@@ -7919,30 +8069,6 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
             <button className="btn btn-outline btn-sm" onClick={nextDay} disabled={selDate===lastDay}>יום הבא ▶</button>
           </div>
         </div>
-        {Object.keys(weeklyCounters).length>0&&(
-          <div style={{display:'flex',gap:10,padding:'8px 0 4px',alignItems:'stretch',width:'100%',boxSizing:'border-box'}}>
-            {[...TYPE_ORDER,...Object.keys(weeklyCounters).filter(t=>!TYPE_ORDER.includes(t))].filter(t=>weeklyCounters[t]).map(type=>{
-              const{weeklyTotal,doneAll,acts}=weeklyCounters[type];
-              const remaining=weeklyTotal-doneAll; // can go negative
-              const isBS=type.includes('בי')&&type.includes('ס');
-              return(
-                <div key={type} style={{background:'var(--card)',border:'0.5px solid #e2e8f0',borderRadius:8,padding:'10px 12px',flex:isBS?'4 1 0':'1 1 0',minWidth:0,overflow:'hidden'}}>
-                  <div style={{fontSize:11,fontWeight:700,color:'var(--text-light)'}}>{type}</div>
-                  <div style={{fontSize:26,fontWeight:700,color:remaining===0?'#16a34a':remaining<0?'#dc2626':'var(--text)',lineHeight:1.1}}>{remaining}</div>
-                  <div style={{fontSize:11,color:'var(--text-light)',marginBottom:6}}>נותר מ-{weeklyTotal}{(weeklyCounters[type]?.extraDone||0)>0?` (כולל ${weeklyCounters[type].extraDone} ללא שם)`:''}</div>
-                  <div style={{borderTop:'0.5px solid #e2e8f0',paddingTop:5,display:isBS?'grid':'flex',gridTemplateColumns:isBS?'1fr 1fr':undefined,gap:'1px 12px',flexDirection:isBS?undefined:'column'}}>
-                    {acts.map(a=>(
-                      <div key={a.id} style={{display:'flex',justifyContent:'space-between',gap:4,fontSize:12,padding:'1px 0'}}>
-                        <span style={{color:'var(--text-light)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</span>
-                        <span style={{fontWeight:600,color:a.remaining===0?'#16a34a':a.remaining<0?'#dc2626':'var(--text)',flexShrink:0,marginRight:4}}>{a.remaining}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
         {displayInsts.length===0&&<div style={{padding:'8px 0',fontSize:12,color:'var(--text-light)'}}>בחר מדריכים בלוח השבועי כדי לראות את הזמינות שלהם כאן</div>}
         {/* ── Filter + View toolbar ── */}
         <div style={{display:'flex',gap:8,alignItems:'center',padding:'8px 0 6px',flexWrap:'wrap',borderTop:'1px solid #e2e8f0',marginTop:4}}>
@@ -7974,16 +8100,29 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
             <option value=''>🏄 סוג פעילות</option>
             {filterActOptions.map(n=><option key={n} value={n}>{n}</option>)}
           </select>
+          <select value={filterActSpecific} onChange={e=>setFilterActSpecific(e.target.value)}
+            style={{fontSize:12,padding:'5px 10px',borderRadius:6,border:`1.5px solid ${filterActSpecific?'#8b5cf6':'#e2e8f0'}`,background:filterActSpecific?'#f5f3ff':'var(--card)',color:'var(--text)',cursor:'pointer',outline:'none'}}>
+            <option value=''>📋 פעילות ספציפית</option>
+            {filterActSpecificOptions.map(n=><option key={n} value={n}>{n}</option>)}
+          </select>
           {hasFilter&&(
-            <button onClick={()=>{setFilterInstId('');setFilterBoatId('');setFilterActName('');setAdvViewMode('day');}}
+            <button onClick={()=>{setFilterInstId('');setFilterBoatId('');setFilterActName('');setFilterActSpecific('');setAdvViewMode('day');}}
               style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid #fca5a5',background:'#fff',color:'#dc2626',cursor:'pointer',flexShrink:0,fontWeight:600}}>
               נקה הכל ✕
             </button>
           )}
-          {hasFilter&&<span style={{fontSize:11,color:'var(--text-light)'}}>{filterBoatId?`⛵ ${sortedBoats.find(b=>b.id===filterBoatId)?.name||''}`:''}{filterInstId&&filterBoatId?' · ':''}{filterInstId?`👤 ${displayInsts.find(i=>i.id===filterInstId)?.name||''}`:''}{filterActName&&(filterInstId||filterBoatId)?' · ':''}{filterActName?`🏄 ${filterActName}`:''}</span>}
+          {hasFilter&&<span style={{fontSize:11,color:'var(--text-light)'}}>{filterBoatId?`⛵ ${sortedBoats.find(b=>b.id===filterBoatId)?.name||''}`:''}{filterInstId&&filterBoatId?' · ':''}{filterInstId?`👤 ${displayInsts.find(i=>i.id===filterInstId)?.name||''}`:''}{filterActName&&(filterInstId||filterBoatId)?' · ':''}{filterActName?`🏄 ${filterActName}`:''}{filterActSpecific&&(filterInstId||filterBoatId||filterActName)?' · ':''}{filterActSpecific?`📋 ${filterActSpecific}`:''}</span>}
         </div>
         <div style={{overflowX:'auto',marginTop:8}}>
           {advViewMode==='week'&&weekData?(
+            <div>
+              <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
+                <button onClick={prevWeek} style={{fontSize:12,padding:'4px 12px',borderRadius:6,border:'1px solid #e2e8f0',background:'var(--card)',cursor:'pointer',color:'var(--text)',fontWeight:600}}>◀ שבוע קודם</button>
+                <span style={{fontSize:12,color:'var(--text-light)',flex:1,textAlign:'center'}}>
+                  {weekData[0]?.dateN}–{weekData[weekData.length-1]?.dateN}/{String(mNum).padStart(2,'0')}
+                </span>
+                <button onClick={nextWeek} style={{fontSize:12,padding:'4px 12px',borderRadius:6,border:'1px solid #e2e8f0',background:'var(--card)',cursor:'pointer',color:'var(--text)',fontWeight:600}}>שבוע הבא ▶</button>
+              </div>
             <div style={{display:'flex',gap:10,padding:'4px 0',flexWrap:'wrap'}}>
               {weekData.map(({dateN,dayName,isSelected,evs})=>{
                 const hol=((JEWISH_HOLIDAYS[month]||[]).find(hh=>hh.date===dateN))||null;
@@ -8007,6 +8146,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
                   </div>
                 );
               })}
+            </div>
             </div>
           ):(
           <table className="cal-day-table">
@@ -8123,6 +8263,34 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
           </table>
           )}
         </div>
+        {/* ── Weekly activity counters (moved to bottom) ── */}
+        {Object.keys(weeklyCounters).length>0&&(
+          <div style={{marginTop:12,borderTop:'1px solid #e2e8f0',paddingTop:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:'var(--text-light)',marginBottom:6}}>מונה פעילויות השבוע</div>
+            <div style={{display:'flex',gap:10,alignItems:'stretch',width:'100%',boxSizing:'border-box',flexWrap:'wrap'}}>
+              {[...TYPE_ORDER,...Object.keys(weeklyCounters).filter(t=>!TYPE_ORDER.includes(t))].filter(t=>weeklyCounters[t]).map(type=>{
+                const{weeklyTotal,doneAll,acts}=weeklyCounters[type];
+                const remaining=weeklyTotal-doneAll;
+                const isBS=type.includes('בי')&&type.includes('ס');
+                return(
+                  <div key={type} style={{background:'var(--card)',border:'0.5px solid #e2e8f0',borderRadius:8,padding:'10px 12px',flex:isBS?'4 1 0':'1 1 0',minWidth:0,overflow:'hidden'}}>
+                    <div style={{fontSize:11,fontWeight:700,color:'var(--text-light)'}}>{type}</div>
+                    <div style={{fontSize:26,fontWeight:700,color:remaining===0?'#16a34a':remaining<0?'#dc2626':'var(--text)',lineHeight:1.1}}>{remaining}</div>
+                    <div style={{fontSize:11,color:'var(--text-light)',marginBottom:6}}>נותר מ-{weeklyTotal}{(weeklyCounters[type]?.extraDone||0)>0?` (כולל ${weeklyCounters[type].extraDone} ללא שם)`:''}</div>
+                    <div style={{borderTop:'0.5px solid #e2e8f0',paddingTop:5,display:isBS?'grid':'flex',gridTemplateColumns:isBS?'1fr 1fr':undefined,gap:'1px 12px',flexDirection:isBS?undefined:'column'}}>
+                      {acts.map(a=>(
+                        <div key={a.id} style={{display:'flex',justifyContent:'space-between',gap:4,fontSize:12,padding:'1px 0'}}>
+                          <span style={{color:'var(--text-light)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</span>
+                          <span style={{fontWeight:600,color:a.remaining===0?'#16a34a':a.remaining<0?'#dc2626':'var(--text)',flexShrink:0,marginRight:4}}>{a.remaining}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
