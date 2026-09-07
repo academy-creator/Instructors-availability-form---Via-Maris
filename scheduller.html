@@ -159,7 +159,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.89';
+const SCHEDULER_VERSION = 'v6.90';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -8315,46 +8315,42 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
 // ═══════════════════════════════════════════════════════════════════════════
 function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,availability,assignments,setAssignments,month,showToast}){
   const SLOTS=[
-    {label:'10–13',boatStart:'10:00',boatEnd:'13:00',classStart:'09:00',classEnd:'10:00'},
-    {label:'13–16',boatStart:'13:00',boatEnd:'16:00',classStart:'12:00',classEnd:'13:00'},
-    {label:'16–19',boatStart:'16:00',boatEnd:'19:00',classStart:'15:00',classEnd:'16:00'},
+    {label:'9–13',classStart:'09:00',classEnd:'10:00',boatStart:'10:00',boatEnd:'13:00'},
+    {label:'12–16',classStart:'12:00',classEnd:'13:00',boatStart:'13:00',boatEnd:'16:00'},
+    {label:'15–19',classStart:'15:00',classEnd:'16:00',boatStart:'16:00',boatEnd:'19:00'},
   ];
-  const CLASSROOMS=['מגלן','כיתה 3'];
   const [y,mNum]=month.split('-').map(Number);
-  const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמרן')||null,[activities]);
+  const katAct=React.useMemo(()=>activities.find(a=>a.name==='קורס קטמרן')||null,[activities]);
   const wasthiBoat=React.useMemo(()=>boats.find(b=>b.name==='ושתי')||null,[boats]);
   const wasthiRoomId=React.useMemo(()=>{
     if(!wasthiBoat)return null;
     return Object.entries(roomBoatMap||{}).find(([,bId])=>bId===wasthiBoat.id)?.[0]||null;
   },[wasthiBoat,roomBoatMap]);
-  const validDates=React.useMemo(()=>{
+
+  const weekdays=React.useMemo(()=>{
     const dim=new Date(y,mNum,0).getDate();
     const res=[];
     for(let i=1;i<=dim;i++){
       const dow=new Date(y,mNum-1,i).getDay();
       if(dow===5||dow===6)continue;
-      const d2=new Date(y,mNum-1,i+1);
-      if(d2.getMonth()!==mNum-1)continue;
       res.push({date:i,dow,dayName:DAYS_HEB[dow]});
     }
     return res;
   },[month]);
-  const getDay2=(d1)=>{
-    const d=new Date(y,mNum-1,d1+1);
-    if(d.getMonth()!==mNum-1)return null;
-    return{date:d.getDate(),dow:d.getDay(),dayName:DAYS_HEB[d.getDay()]};
-  };
-  const initDate=validDates[0]?.date||0;
-  const [courses,setCourses]=React.useState([{id:1,startDate:initDate,slotIdx:0,classroom:'מגלן'}]);
-  const nextId=React.useRef(2);
-  const [showOpts,setShowOpts]=React.useState({});
-  const addCourse=()=>{const id=nextId.current++;setCourses(p=>[...p,{id,startDate:initDate,slotIdx:0,classroom:'מגלן'}]);};
-  const removeCourse=(id)=>setCourses(p=>p.filter(c=>c.id!==id));
-  const upd=(id,f,v)=>setCourses(p=>p.map(c=>c.id===id?{...c,[f]:v}:c));
-  const isBoatAvail=(dayNum,slot)=>{
+
+  const dayPairs=React.useMemo(()=>{
+    const pairs=[];
+    for(let i=0;i<weekdays.length-1;i++){
+      const d1=weekdays[i],d2=weekdays[i+1];
+      if(d2.date===d1.date+1)pairs.push({d1,d2});
+    }
+    return pairs;
+  },[weekdays]);
+
+  const isBoatFree=React.useCallback((dayNum,slot)=>{
     if(!wasthiBoat)return null;
-    const [bH]=slot.boatStart.split(':').map(Number);
-    const [eH]=slot.boatEnd.split(':').map(Number);
+    const[bH]=slot.boatStart.split(':').map(Number);
+    const[eH]=slot.boatEnd.split(':').map(Number);
     const slotS=bH*60,slotE=eH*60;
     if(wasthiRoomId){
       const busy=(crmEvents||[]).some(e=>{
@@ -8376,8 +8372,9 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
       return sh*60<slotE&&eh*60>slotS;
     });
     return!busy2;
-  };
-  const isInstAvail=(inst,dayNum,slot)=>{
+  },[wasthiBoat,wasthiRoomId,crmEvents,assignments,month]);
+
+  const isInstFree=React.useCallback((inst,dayNum,slot)=>{
     const av=(availability&&availability[`${inst.id}_${month}`])||{};
     const[sH]=slot.classStart.split(':').map(Number);
     const[eH]=slot.boatEnd.split(':').map(Number);
@@ -8385,221 +8382,132 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
       if(av[`${dayNum}_${h.toString().padStart(2,'0')}:00`]!==true)return false;
     }
     return true;
-  };
-  const isQual=(inst)=>(inst.skills||[]).includes('קטמרן');
-  const getInsts=(d1,d2obj,slot)=>{
-    if(!d2obj)return{both:[],onlyD1:[],onlyD2:[]};
-    const both=instructors.filter(i=>isQual(i)&&isInstAvail(i,d1,slot)&&isInstAvail(i,d2obj.date,slot));
-    const onlyD1=instructors.filter(i=>isQual(i)&&isInstAvail(i,d1,slot)&&!isInstAvail(i,d2obj.date,slot));
-    const onlyD2=instructors.filter(i=>isQual(i)&&!isInstAvail(i,d1,slot)&&isInstAvail(i,d2obj.date,slot));
-    return{both,onlyD1,onlyD2};
-  };
-  const allOpts=React.useMemo(()=>{
-    const opts=[];
-    validDates.forEach(({date:d1,dow,dayName:dn1})=>{
-      const d2info=getDay2(d1);
-      if(!d2info)return;
-      SLOTS.forEach((slot,si)=>{
-        const ok1=isBoatAvail(d1,slot);
-        const ok2=isBoatAvail(d2info.date,slot);
-        if(ok1===false||ok2===false)return;
-        const{both}=getInsts(d1,d2info,slot);
-        if(both.length>0)opts.push({d1,dn1,d2:d2info,slot,slotIdx:si,insts:both});
+  },[availability,month]);
+
+  const instOptions=React.useMemo(()=>{
+    const katInsts=instructors.filter(i=>(i.skills||[]).some(s=>s==='קטמרן'||s==='קורס קטמרן'));
+    return katInsts.map(inst=>{
+      const opts=[];
+      dayPairs.forEach(({d1,d2})=>{
+        SLOTS.forEach(slot=>{
+          if(!isInstFree(inst,d1.date,slot)||!isInstFree(inst,d2.date,slot))return;
+          const b1=isBoatFree(d1.date,slot);
+          const b2=isBoatFree(d2.date,slot);
+          if(b1===false||b2===false)return;
+          opts.push({d1,d2,slot,key:`${inst.id}_${d1.date}_${slot.label}`});
+        });
       });
+      return{inst,opts};
     });
-    return opts;
-  },[validDates,assignments,month,wasthiBoat,wasthiRoomId,crmEvents,instructors,availability]);
-  const generateAssignments=(course)=>{
+  },[instructors,dayPairs,isInstFree,isBoatFree]);
+
+  const [selected,setSelected]=React.useState(new Set());
+  const toggleSel=(key)=>setSelected(prev=>{const s=new Set(prev);s.has(key)?s.delete(key):s.add(key);return s;});
+
+  const assignSelected=()=>{
     if(!katAct){showToast('לא נמצאה פעילות קטמרן');return;}
     if(!wasthiBoat){showToast('לא נמצאה סירת ושתי');return;}
-    if(!course.startDate){showToast('בחר תאריך התחלה');return;}
-    const slot=SLOTS[course.slotIdx];
-    const day2=getDay2(course.startDate);
-    if(!day2){showToast('אין יום 2 בחודש זה');return;}
-    const{both}=getInsts(course.startDate,day2,slot);
-    const inst=both[0]||null;
+    if(!selected.size){showToast('לא נבחרו אפשרויות');return;}
     const key=`schedule_${month}`;
-    const existing=(assignments[key]||[]).filter(a=>a._kataCourseId!==course.id);
+    const newItems=[];
     const now=Date.now();
-    const newItems=[{d:course.startDate,dow:new Date(y,mNum-1,course.startDate).getDay()},{d:day2.date,dow:day2.dow}].map(({d,dow},i)=>({
-      id:`kata_${course.id}_${d}_${now+i}`,
-      _kataCourseId:course.id,
-      activityId:katAct.id,activityName:'קטמרן',
-      boatId:wasthiBoat.id,boatName:wasthiBoat.name,boatType:wasthiBoat.type||'קטמרן',
-      date:d,dayOfWeek:dow,
-      startHour:slot.classStart,endHour:slot.boatEnd,
-      instructorId:inst?.id||null,instructorName:inst?.name||null,
-      extraInstructors:[],instructorsNeeded:1,
-      missingInstructors:inst?0:1,status:inst?'assigned':'no_instructor',
-      source:'katamaran_wizard',
-    }));
-    setAssignments(prev=>({...prev,[key]:[...existing,...newItems]}));
-    showToast(`✓ נוצרו 2 שיבוצים לקורס קטמרן ${course.id}`);
+    let idx=0;
+    const selectedOpts=[];
+    instOptions.forEach(({inst,opts})=>{
+      opts.forEach(opt=>{if(selected.has(opt.key))selectedOpts.push({inst,opt});});
+    });
+    selectedOpts.forEach(({inst,opt})=>{
+      const courseId=`katkat_${opt.key}_${now}`;
+      [opt.d1,opt.d2].forEach(day=>{
+        const dateNum=day.date;
+        const dow=new Date(y,mNum-1,dateNum).getDay();
+        newItems.push({
+          id:`katclass_${opt.key}_${dateNum}_${now+(idx++)}`,
+          _katCourseId:courseId,
+          _classroomName:'מגלן',
+          boatId:null,
+          activityId:katAct.id,activityName:'קורס קטמרן',
+          date:dateNum,dayOfWeek:dow,
+          startHour:opt.slot.classStart,endHour:opt.slot.classEnd,
+          instructorId:inst.id,instructorName:inst.name,
+          extraInstructors:[],instructorsNeeded:1,missingInstructors:0,status:'assigned',
+          source:'katamaran_wizard',
+        });
+        newItems.push({
+          id:`katboat_${opt.key}_${dateNum}_${now+(idx++)}`,
+          _katCourseId:courseId,
+          boatId:wasthiBoat.id,boatName:wasthiBoat.name,boatType:wasthiBoat.type||'קטמרן',
+          activityId:katAct.id,activityName:'קורס קטמרן',
+          date:dateNum,dayOfWeek:dow,
+          startHour:opt.slot.boatStart,endHour:opt.slot.boatEnd,
+          instructorId:inst.id,instructorName:inst.name,
+          extraInstructors:[],instructorsNeeded:1,missingInstructors:0,status:'assigned',
+          source:'katamaran_wizard',
+        });
+      });
+    });
+    setAssignments(prev=>({...prev,[key]:[...(prev[key]||[]),...newItems]}));
+    showToast(`✓ שובצו ${selectedOpts.length} קורסי קטמרן (${newItems.length} שיבוצים)`);
+    setSelected(new Set());
   };
-  const DayBlock=({dayNum,dayName,slot,label,classroom,isD2Ready=true})=>{
-    const boatOk=isBoatAvail(dayNum,slot);
-    return(
-      <div style={{border:'0.5px solid var(--border)',borderRadius:8,padding:'7px 9px',marginBottom:7,opacity:isD2Ready?1:0.4}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
-          <span style={{fontSize:12,fontWeight:500}}>{dayName} {dayNum}/{mNum.toString().padStart(2,'0')}</span>
-          <span style={{fontSize:10,color:'var(--text-light)'}}>{label}</span>
-        </div>
-        <div style={{fontSize:10,color:'var(--text-light)',marginBottom:5}}>{slot.classStart}–{slot.classEnd} כיתה · {slot.boatStart}–{slot.boatEnd} ושתי</div>
-        {!isD2Ready?<div style={{fontSize:11,color:'var(--text-light)',fontStyle:'italic'}}>ממתין לתיקון יום 1</div>:(
-          <>
-            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,marginBottom:3}}>
-              <span style={{width:6,height:6,borderRadius:'50%',background:'#94a3b8',display:'inline-block',flexShrink:0}}/>
-              <span style={{color:'var(--text-light)'}}>כיתה — {classroom||'לא נבחרה'}</span>
-            </div>
-            {boatOk===null?null:boatOk?(
-              <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11}}>
-                <span style={{width:6,height:6,borderRadius:'50%',background:'#16a34a',display:'inline-block',flexShrink:0}}/>
-                <span style={{color:'#16a34a'}}>ושתי פנויה</span>
-              </div>
-            ):(
-              <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11}}>
-                <span style={{width:6,height:6,borderRadius:'50%',background:'#dc2626',display:'inline-block',flexShrink:0}}/>
-                <span style={{color:'#dc2626',fontWeight:500}}>ושתי תפוסה ← שנה סלוט</span>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    );
-  };
+
+  const totalKatInsts=instOptions.length;
+  const totalOpts=instOptions.reduce((s,{opts})=>s+opts.length,0);
+
   return(
     <div style={{direction:'rtl',padding:16}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
         <h2 style={{fontSize:16,fontWeight:600,margin:0}}>אשף קטמרן — {month}</h2>
         {(!katAct||!wasthiBoat)&&<span style={{fontSize:12,color:'var(--danger)',background:'#fee2e2',padding:'3px 10px',borderRadius:8}}>
           ⚠ חסר: {[!katAct&&'פעילות קטמרן',!wasthiBoat&&'סירת ושתי'].filter(Boolean).join(' + ')}
         </span>}
       </div>
       <div style={{fontSize:12,color:'var(--text-light)',marginBottom:14}}>
-        סלוטים: 10–13 / 13–16 / 16–19. כיתה = שעה שלפני. אותו מדריך חייב להיות זמין בשני הימים.
+        {totalKatInsts} מדריכים מוסמכים · {totalOpts} אפשרויות זמינות. סמן ולחץ שבץ.
       </div>
-      <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'flex-start'}}>
-        {courses.map((course,ci)=>{
-          const slot=SLOTS[course.slotIdx];
-          const day2=course.startDate?getDay2(course.startDate):null;
-          const d1info=validDates.find(d=>d.date===course.startDate);
-          const boatOk1=course.startDate?isBoatAvail(course.startDate,slot):null;
-          const boatOk2=day2?isBoatAvail(day2.date,slot):null;
-          const canProceed=boatOk1!==false&&boatOk2!==false;
-          const{both,onlyD1,onlyD2}=course.startDate&&day2?getInsts(course.startDate,day2,slot):{both:[],onlyD1:[],onlyD2:[]};
-          const isOpen=showOpts[course.id];
-          return(
-            <div key={course.id} style={{background:'var(--card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'13px 14px',flex:'1 1 230px',maxWidth:310}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-                <span style={{fontWeight:500,fontSize:13}}>קורס {ci+1}</span>
-                {courses.length>1&&<button onClick={()=>removeCourse(course.id)} style={{background:'none',border:'none',color:'var(--danger,#dc2626)',cursor:'pointer',fontSize:18,lineHeight:1,padding:0}}>✕</button>}
-              </div>
-              <button onClick={()=>setShowOpts(prev=>({...prev,[course.id]:!prev[course.id]}))}
-                style={{width:'100%',marginBottom:8,padding:'5px 10px',borderRadius:6,border:'1px solid var(--border)',background:isOpen?'var(--primary,#2563eb)':'var(--bg-secondary,#f3f4f6)',color:isOpen?'#fff':'var(--text)',fontSize:11,cursor:'pointer',fontWeight:500}}>
-                {isOpen?'▲ הסתר אפשרויות':`▼ הצג כל האפשרויות (${allOpts.length})`}
-              </button>
-              {isOpen&&(
-                <div style={{marginBottom:10,maxHeight:220,overflowY:'auto',border:'0.5px solid var(--border)',borderRadius:6}}>
-                  {allOpts.length===0?(
-                    <div style={{padding:12,fontSize:11,color:'#dc2626',textAlign:'center'}}>אין אפשרויות זמינות</div>
-                  ):(
-                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                      <thead style={{position:'sticky',top:0,background:'var(--bg-secondary,#f3f4f6)'}}>
-                        <tr>
-                          <th style={{padding:'4px 6px',textAlign:'right',fontWeight:600,borderBottom:'0.5px solid var(--border)',fontSize:10}}>יום 1</th>
-                          <th style={{padding:'4px 6px',textAlign:'right',fontWeight:600,borderBottom:'0.5px solid var(--border)',fontSize:10}}>סלוט</th>
-                          <th style={{padding:'4px 6px',textAlign:'right',fontWeight:600,borderBottom:'0.5px solid var(--border)',fontSize:10}}>מדריכים</th>
-                          <th style={{padding:'4px 4px',borderBottom:'0.5px solid var(--border)'}}></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {allOpts.map((opt,oi)=>(
-                          <tr key={oi} style={{borderBottom:'0.5px solid #f1f5f9',cursor:'pointer'}}
-                            onMouseEnter={e=>e.currentTarget.style.background='#f0f9ff'}
-                            onMouseLeave={e=>e.currentTarget.style.background=''}
-                            onClick={()=>{
-                              upd(course.id,'startDate',opt.d1);
-                              upd(course.id,'slotIdx',opt.slotIdx);
-                              setShowOpts(prev=>({...prev,[course.id]:false}));
-                            }}>
-                            <td style={{padding:'4px 6px',fontWeight:500,whiteSpace:'nowrap'}}>{opt.dn1} {opt.d1}/{mNum.toString().padStart(2,'0')}</td>
-                            <td style={{padding:'4px 6px',whiteSpace:'nowrap'}}>{opt.slot.label}</td>
-                            <td style={{padding:'4px 6px'}}>
-                              <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
-                                {opt.insts.map(i=>(
-                                  <span key={i.id} style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'#dcfce7',color:'#15803d',fontWeight:500,whiteSpace:'nowrap'}}>
-                                    {i.name.split(' ')[0]}
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
-                            <td style={{padding:'4px 6px',color:'var(--primary)',fontSize:11,whiteSpace:'nowrap'}}>בחר ›</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              )}
-              <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'5px 8px',alignItems:'center',fontSize:12,marginBottom:10}}>
-                <span style={{fontSize:11,color:'var(--text-light)'}}>יום 1</span>
-                <select value={course.startDate||''} onChange={e=>upd(course.id,'startDate',Number(e.target.value))}
-                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  <option value="">— בחר תאריך —</option>
-                  {validDates.map(d=><option key={d.date} value={d.date}>{d.dayName} {d.date}/{mNum.toString().padStart(2,'0')}</option>)}
-                </select>
-                <span style={{fontSize:11,color:'var(--text-light)'}}>סלוט</span>
-                <select value={course.slotIdx} onChange={e=>upd(course.id,'slotIdx',Number(e.target.value))}
-                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  {SLOTS.map((s,i)=><option key={i} value={i}>{s.label} (כיתה {s.classStart.slice(0,2)}–{s.classEnd.slice(0,2)})</option>)}
-                </select>
-                <span style={{fontSize:11,color:'var(--text-light)'}}>כיתה</span>
-                <select value={course.classroom} onChange={e=>upd(course.id,'classroom',e.target.value)}
-                  style={{fontSize:11,padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)'}}>
-                  {CLASSROOMS.map(c=><option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              {course.startDate&&d1info&&<DayBlock dayNum={course.startDate} dayName={d1info.dayName} slot={slot} label="יום 1" classroom={course.classroom}/>}
-              {day2&&<DayBlock dayNum={day2.date} dayName={day2.dayName} slot={slot} label="יום 2" classroom={course.classroom} isD2Ready={boatOk1!==false}/>}
-              <div style={{borderTop:'0.5px solid var(--border)',paddingTop:6,marginTop:2}}>
-                {both.length>0?(
-                  <>
-                    <div style={{fontSize:10,color:'var(--text-light)',marginBottom:4}}>מדריך זמין שני הימים + מוסמך:</div>
-                    <div style={{display:'flex',flexWrap:'wrap',gap:3}}>
-                      {both.map(i=><span key={i.id} style={{fontSize:10,padding:'1px 5px',borderRadius:3,background:'#dcfce7',color:'#166534'}}>{i.name.split(' ')[0]}</span>)}
-                    </div>
-                  </>
-                ):(
-                  <>
-                    <div style={{fontSize:10,color:'#dc2626',fontWeight:500,marginBottom:3}}>אין מדריך זמין בשני הימים</div>
-                    {(onlyD1.length>0||onlyD2.length>0)&&(
-                      <div style={{fontSize:10,color:'var(--text-light)'}}>
-                        {onlyD1.length>0&&<span>יום 1 בלבד: {onlyD1.map(i=>i.name.split(' ')[0]).join(', ')}. </span>}
-                        {onlyD2.length>0&&<span>יום 2 בלבד: {onlyD2.map(i=>i.name.split(' ')[0]).join(', ')}.</span>}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-              <button onClick={()=>generateAssignments(course)}
-                disabled={!canProceed||both.length===0}
-                style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'none',background:'var(--primary,#2563eb)',color:'#fff',fontWeight:500,cursor:canProceed&&both.length>0?'pointer':'default',width:'100%',marginTop:8,opacity:canProceed&&both.length>0?1:0.35}}>
-                צור שיבוצים
-              </button>
+      {instOptions.map(({inst,opts})=>(
+        <div key={inst.id} style={{background:'var(--card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'12px 14px',marginBottom:10}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:opts.length?8:0}}>
+            <span style={{fontWeight:600,fontSize:13}}>{inst.name}</span>
+            {opts.length===0
+              ?<span style={{fontSize:11,color:'var(--text-light)'}}>אין אפשרויות זמינות</span>
+              :<span style={{fontSize:11,color:'var(--text-light)'}}>({opts.length} אפשרויות)</span>
+            }
+          </div>
+          {opts.length>0&&(
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {opts.map(opt=>{
+                const isSel=selected.has(opt.key);
+                return(
+                  <label key={opt.key} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:8,border:`1px solid ${isSel?'var(--primary,#2563eb)':'var(--border)'}`,background:isSel?'#eff6ff':'var(--bg-secondary,#f8fafc)',cursor:'pointer',fontSize:11,userSelect:'none'}}>
+                    <input type="checkbox" checked={isSel} onChange={()=>toggleSel(opt.key)} style={{margin:0}}/>
+                    <span style={{fontWeight:500}}>{opt.slot.label}</span>
+                    <span style={{color:'var(--text-light)',marginRight:3}}>{opt.d1.dayName} {opt.d1.date}/{String(mNum).padStart(2,'0')} + {opt.d2.dayName} {opt.d2.date}/{String(mNum).padStart(2,'0')}</span>
+                  </label>
+                );
+              })}
             </div>
-          );
-        })}
-        <div style={{flex:'0 0 auto',display:'flex',alignItems:'flex-start',paddingTop:4}}>
-          <button onClick={addCourse}
-            style={{padding:'8px 14px',borderRadius:8,border:'1px dashed var(--border)',background:'transparent',color:'var(--text-light)',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>
-            + קורס נוסף
-          </button>
+          )}
         </div>
+      ))}
+      {totalKatInsts===0&&(
+        <div style={{textAlign:'center',color:'var(--text-light)',fontSize:13,padding:24}}>אין מדריכים עם כישור קטמרן</div>
+      )}
+      <div style={{marginTop:12,display:'flex',gap:10,alignItems:'center'}}>
+        <button onClick={assignSelected}
+          disabled={!selected.size}
+          style={{padding:'9px 20px',borderRadius:8,border:'none',background:'var(--primary,#2563eb)',color:'#fff',fontWeight:600,fontSize:13,cursor:selected.size?'pointer':'default',opacity:selected.size?1:0.4}}>
+          שבץ נבחרים ({selected.size})
+        </button>
+        {selected.size>0&&(
+          <button onClick={()=>setSelected(new Set())} style={{padding:'9px 14px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text-light)',fontSize:12,cursor:'pointer'}}>
+            נקה בחירה
+          </button>
+        )}
       </div>
     </div>
   );
 }
-
 // ═══════════════════════════════════════════════════════════════════════════
 // KATMANDU WIZARD
 // ═══════════════════════════════════════════════════════════════════════════
