@@ -159,7 +159,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.90';
+const SCHEDULER_VERSION = 'v6.91';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -6278,6 +6278,27 @@ function StatsTab({instructors,activities,boats,availability,assignments,month,c
           <div className="number" style={{fontSize:18,color:showLog?'#fff':'var(--primary)'}}>{changeLog.length}</div>
           <div className="label" style={{color:showLog?'rgba(255,255,255,.85)':'var(--text-light)'}}>📋 יומן שינויים</div>
         </div>
+        <div className="stat-card" style={{cursor:'pointer'}} onClick={()=>{
+          const rows=[['תאריך','יום','שעות','פעילות','מדריך']];
+          const[yy,mm]=month.split('-').map(Number);
+          schedule.slice().sort((a,b)=>a.date-b.date||(a.startHour||'').localeCompare(b.startHour||'')).forEach(s=>{
+            const dow=s.dayOfWeek!=null?s.dayOfWeek:new Date(yy,mm-1,s.date).getDay();
+            rows.push([
+              `${String(s.date).padStart(2,'0')}/${String(mm).padStart(2,'0')}/${yy}`,
+              DAYS_HEB[dow]||'',
+              `${s.startHour||''}${s.endHour?'–'+s.endHour:''}`,
+              s.activityName||'',
+              s.instructorName||''
+            ]);
+          });
+          const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+          const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+          const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+          a.download=`schedule_${month}.csv`;a.click();
+        }}>
+          <div className="number" style={{fontSize:18,color:'var(--primary)'}}>{schedule.length}</div>
+          <div className="label">📤 ייצוא CSV</div>
+        </div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
         <div className="card">
@@ -6748,6 +6769,43 @@ function InboxTab({inbox,setInbox,instructors,setInstructors,availability,setAva
           </div>
         </div>
 
+        {(()=>{
+          const [y,m]=currentMonth.split('-').map(Number);
+          const submittedIds=new Set();
+          instructors.forEach(inst=>{
+            const av=availability[`${inst.id}_${currentMonth}`]||{};
+            if(Object.keys(av).length>0)submittedIds.add(inst.id);
+          });
+          inbox.forEach(item=>{
+            if(item.data?.month===currentMonth){
+              const name=item.data?.instructor?.name;
+              if(name){
+                const found=instructors.find(i=>i.name===name);
+                if(found)submittedIds.add(found.id);
+              }
+            }
+          });
+          const missing=instructors.filter(i=>!submittedIds.has(i.id));
+          if(missing.length===0)return(
+            <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:10,padding:'10px 14px',marginBottom:12,fontSize:12,color:'#15803d',fontWeight:500}}>
+              ✅ כל המדריכים שלחו זמינות ל-{currentMonth}
+            </div>
+          );
+          return(
+            <div style={{background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:10,padding:'10px 14px',marginBottom:12}}>
+              <div style={{fontWeight:600,fontSize:12,color:'#92400e',marginBottom:6}}>
+                ⚠ לא שלחו זמינות ל-{currentMonth} ({missing.length} מדריכים):
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                {missing.map(i=>(
+                  <span key={i.id} style={{background:'#fef3c7',border:'1px solid #fcd34d',borderRadius:6,padding:'2px 8px',fontSize:11,color:'#78350f'}}>
+                    {i.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         <div className={`inbox-dropzone${dragOver?' drag-over':''}`}
           onDragOver={e=>{e.preventDefault();setDragOver(true);}}
           onDragLeave={()=>setDragOver(false)}
