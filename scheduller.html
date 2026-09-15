@@ -159,7 +159,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.91';
+const SCHEDULER_VERSION = 'v6.92';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -411,6 +411,10 @@ class ErrorBoundary extends React.Component {
 
 function App(){
   const [tab,setTab]=useState('instructors');
+  const [archivedTabs,setArchivedTabs]=useState(()=>{try{return JSON.parse(localStorage.getItem('sch_archived_tabs'))||[];}catch{return [];}});
+  const [archiveOpen,setArchiveOpen]=useState(false);
+  const [dragOverArchive,setDragOverArchive]=useState(false);
+  const draggingTabId=useRef(null);
   const [weeklySelections,setWeeklySelections]=useState(()=>{try{return JSON.parse(localStorage.getItem('sch_weekly_sel_v2'))||{};}catch{return {};}});
   const [assignmentViewDate,setAssignmentViewDate]=useState(null);
   const [weeklyPlanIdx,setWeeklyPlanIdx]=useState(0);
@@ -639,6 +643,7 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('sch_inbox',JSON.stringify(inbox));}catch{}},[inbox]);
   useEffect(()=>{try{localStorage.setItem('sch_crm_events',JSON.stringify(crmEvents));}catch{}},[crmEvents]);
   useEffect(()=>{try{localStorage.setItem('sch_room_boat_map',JSON.stringify(roomBoatMap));}catch{}},[roomBoatMap]);
+  useEffect(()=>{try{localStorage.setItem('sch_archived_tabs',JSON.stringify(archivedTabs));}catch{}},[archivedTabs]);
 
   // Listen for cross-tab inbox updates (the form writes to sch_inbox in another tab/window).
   // Refresh inbox state from localStorage when a storage event fires.
@@ -790,14 +795,59 @@ function App(){
           </label>
         </div>
       </div>
-      <div className="tabs">
-        {tabs.map(t=>(
-          <button key={t.id} className={`tab ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}>
+      <div className="tabs" style={{flexWrap:'wrap',gap:'4px 2px',alignItems:'center'}}>
+        {tabs.filter(t=>!archivedTabs.includes(t.id)).map(t=>(
+          <button key={t.id}
+            className={`tab ${tab===t.id?'active':''}`}
+            draggable
+            onDragStart={()=>{draggingTabId.current=t.id;}}
+            onDragEnd={()=>{draggingTabId.current=null;setDragOverArchive(false);}}
+            onClick={()=>setTab(t.id)}>
             {t.icon} {t.label}
-            {t.badge>0 && <span className="tab-badge">{t.badge}</span>}
+            {t.badge>0&&<span className="tab-badge">{t.badge}</span>}
           </button>
         ))}
+        <button
+          className={`tab${archiveOpen?' active':''}`}
+          style={{marginRight:'auto',borderStyle:dragOverArchive?'dashed':'solid',borderColor:dragOverArchive?'var(--primary,#2563eb)':'',color:dragOverArchive?'var(--primary,#2563eb)':'',opacity:archivedTabs.length===0&&!dragOverArchive?0.45:1,fontSize:12}}
+          onClick={()=>setArchiveOpen(v=>!v)}
+          onDragOver={e=>{e.preventDefault();setDragOverArchive(true);}}
+          onDragLeave={()=>setDragOverArchive(false)}
+          onDrop={e=>{
+            e.preventDefault();
+            setDragOverArchive(false);
+            const tid=draggingTabId.current;
+            if(!tid)return;
+            setArchivedTabs(prev=>prev.includes(tid)?prev:[...prev,tid]);
+            if(tab===tid){
+              const next=tabs.find(t=>!archivedTabs.includes(t.id)&&t.id!==tid&&t.id!=='assignmentview');
+              setTab(next?.id||'instructors');
+            }
+            setArchiveOpen(true);
+            draggingTabId.current=null;
+          }}>
+          📦 ארכיון{archivedTabs.length>0?` (${archivedTabs.length})`:''}
+        </button>
       </div>
+      {archiveOpen&&archivedTabs.length>0&&(
+        <div style={{background:'var(--card,#fff)',borderBottom:'0.5px solid var(--border)',padding:'7px 14px',display:'flex',flexWrap:'wrap',gap:6,direction:'rtl',alignItems:'center'}}>
+          <span style={{fontSize:11,color:'var(--text-light)',flexShrink:0}}>לחץ להחזיר:</span>
+          {archivedTabs.map(tid=>{
+            const t=tabs.find(x=>x.id===tid);
+            if(!t)return null;
+            return(
+              <button key={tid}
+                style={{padding:'3px 10px',borderRadius:6,border:'0.5px solid var(--border)',background:'var(--bg-secondary,#f8fafc)',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,direction:'rtl'}}
+                onClick={()=>{
+                  setArchivedTabs(prev=>{const n=prev.filter(x=>x!==tid);if(!n.length)setArchiveOpen(false);return n;});
+                  setTab(tid);
+                }}>
+                {t.icon} {t.label} <span style={{fontSize:10,opacity:.6}}>↩</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="content">
         <ErrorBoundary key={tab}>
         {tab==='instructors'&&<InstructorsTab instructors={instructors} setInstructors={setInstructors} allSkills={allSkills} syncFromSheet={syncFromSheet} sheetSyncStatus={sheetSyncStatus} showToast={showToast}/>}
