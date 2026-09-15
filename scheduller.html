@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#f8f9fa;--card:#fff;--border:#dee2e6;--primary:#2563eb;--primary-light:#dbeafe;--primary-dark:#1d4ed8;--text:#1e293b;--text-light:#64748b;--success:#16a34a;--success-bg:#dcfce7;--warning:#ca8a04;--warning-bg:#fef9c3;--danger:#dc2626;--danger-bg:#fee2e2;--info:#0284c7;--info-bg:#e0f2fe;--shadow:0 1px 3px rgba(0,0,0,.1)}
@@ -159,7 +160,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.92';
+const SCHEDULER_VERSION = 'v6.97';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -1352,6 +1353,9 @@ function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,dayli
                             <th>אורך</th>
                             <th>סה״כ/חודש</th>
                             <th>מדריכים</th>
+                            <th>מקס משתתפים</th>
+                            <th>אורח</th>
+                            <th>משאב משני</th>
                             <th>פעולות</th>
                           </tr>
                         </thead>
@@ -1362,6 +1366,9 @@ function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,dayli
                               <td style={{fontSize:13}}>{a.durationHours||3}ש'</td>
                               <td style={{fontWeight:600,fontSize:14}}>{a.totalPerMonth||0}</td>
                               <td style={{fontSize:13}}>{a.instructorsNeeded||1}</td>
+                              <td style={{fontSize:13,textAlign:'center'}}>{a.maxParticipants!=null?a.maxParticipants:<span style={{color:'var(--text-light)',fontSize:11}}>—</span>}</td>
+                              <td style={{fontSize:13,textAlign:'center'}}>{a.allowGuest===true?'✓':a.allowGuest===false?'✗':<span style={{color:'var(--text-light)',fontSize:11}}>—</span>}</td>
+                              <td style={{fontSize:11,textAlign:'center',color:a.secondaryResource?'var(--primary)':'var(--text-light)'}}>{a.secondaryResource?(a.secondaryResource.type==='classroom'?'כיתה':'סירה')+'/'+(a.secondaryResource.timing==='first1'?'ש׳1':a.secondaryResource.timing==='first2'?'ש׳2':'כל'):<span>—</span>}</td>
                               <td>
                                 <div style={{display:'flex',gap:4}}>
                                   <button className="btn-icon" onClick={()=>{setEditing(a);setShowModal(true);}}>✏️</button>
@@ -1418,6 +1425,11 @@ function ActivityModal({activity,boats,onSave,onClose}){
   const [bNightStart,setBNightStart]=useState(initialB.night?.start ?? 20);
   const [bNightEnd,setBNightEnd]=useState(initialB.night?.end ?? 22);
   const [showBuckets,setShowBuckets]=useState(false);
+  const [maxParticipants,setMaxParticipants]=useState(activity?.maxParticipants ?? '');
+  const [allowGuest,setAllowGuest]=useState(activity?.allowGuest ?? false);
+  const [hasSecondaryResource,setHasSecondaryResource]=useState(activity?.secondaryResource!=null);
+  const [secondaryResourceType,setSecondaryResourceType]=useState(activity?.secondaryResource?.type||'classroom');
+  const [secondaryResourceTiming,setSecondaryResourceTiming]=useState(activity?.secondaryResource?.timing||'first1');
   const bucketsAreDefault = bMorningStart===7 && bMorningEnd===11 && bEveningStart===16 && bEveningEnd===20 && bNightStart===20 && bNightEnd===22;
 
   const toggleType = (t) => setAllowedBoatTypes(allowedBoatTypes.includes(t) ? allowedBoatTypes.filter(x=>x!==t) : [...allowedBoatTypes, t]);
@@ -1464,6 +1476,45 @@ function ActivityModal({activity,boats,onSave,onClose}){
             <label>מדריכים נדרשים</label>
             <input type="number" min={1} max={15} value={instructorsNeeded} onChange={e=>setInstructorsNeeded(Math.min(15,Math.max(1,Number(e.target.value)||1)))}/>
           </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group" style={{flex:1}}>
+            <label>מקס משתתפים (אופציונלי)</label>
+            <input type="number" min={1} max={999} value={maxParticipants} placeholder="ללא הגבלה"
+              onChange={e=>setMaxParticipants(e.target.value===''?'':Math.max(1,Number(e.target.value)||1))}/>
+          </div>
+          <div className="form-group" style={{flex:1,display:'flex',alignItems:'center',gap:10,paddingTop:20}}>
+            <label style={{cursor:'pointer',display:'flex',alignItems:'center',gap:8,margin:0,fontWeight:500}}>
+              <input type="checkbox" checked={allowGuest} onChange={e=>setAllowGuest(e.target.checked)} style={{width:16,height:16,cursor:'pointer'}}/>
+              אפשרות לאורח
+            </label>
+          </div>
+        </div>
+
+        <div style={{marginBottom:12,padding:'10px 12px',border:'1px dashed var(--border)',borderRadius:8,background:'#f8fafc'}}>
+          <label style={{cursor:'pointer',display:'flex',alignItems:'center',gap:8,fontWeight:600,marginBottom:hasSecondaryResource?10:0}}>
+            <input type="checkbox" checked={hasSecondaryResource} onChange={e=>setHasSecondaryResource(e.target.checked)} style={{width:16,height:16,cursor:'pointer'}}/>
+            משאב משני (כיתה/סירה נוספת)
+          </label>
+          {hasSecondaryResource&&(
+            <div className="form-row" style={{marginBottom:0}}>
+              <div className="form-group" style={{flex:1}}>
+                <label>סוג משאב</label>
+                <select value={secondaryResourceType} onChange={e=>setSecondaryResourceType(e.target.value)}>
+                  <option value="classroom">כיתה</option>
+                  <option value="boat">סירה</option>
+                </select>
+              </div>
+              <div className="form-group" style={{flex:1}}>
+                <label>בשעות הפעילות</label>
+                <select value={secondaryResourceTiming} onChange={e=>setSecondaryResourceTiming(e.target.value)}>
+                  <option value="first1">שעה ראשונה</option>
+                  <option value="first2">שעתיים ראשונות</option>
+                  <option value="all">כל הפעילות (מקביל)</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="form-group" style={{marginBottom:12}}>
@@ -1630,7 +1681,10 @@ function ActivityModal({activity,boats,onSave,onClose}){
                 morning:{start:bMorningStart,end:bMorningEnd},
                 evening:{start:bEveningStart,end:bEveningEnd},
                 night:{start:bNightStart,end:bNightEnd}
-              }
+              },
+              maxParticipants: maxParticipants===''?null:Number(maxParticipants),
+              allowGuest: allowGuest,
+              secondaryResource: hasSecondaryResource?{type:secondaryResourceType,timing:secondaryResourceTiming}:null
             });
           }}>
             {activity?'עדכן':'הוסף'}
@@ -6166,6 +6220,242 @@ function InstructorExportModal({stat,month,onClose}){
   );
 }
 
+
+function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onClose}){
+  const SOURCES=[
+    {value:'date',        label:'תאריך (DD/MM/YYYY)'},
+    {value:'day',         label:'יום בשבוע'},
+    {value:'startHour',   label:'שעת התחלה'},
+    {value:'endHour',     label:'שעת סיום'},
+    {value:'timeRange',   label:'שעות (טווח)'},
+    {value:'activityName',label:'שם פעילות'},
+    {value:'instructorName',label:'מדריך'},
+    {value:'boatName',    label:'סירה'},
+    {value:'classroomName',label:'כיתה'},
+    {value:'source',      label:'מקור שיבוץ'},
+    {value:'notes',       label:'הערות'},
+    {value:'activityType', label:'סוג פעילות'},
+    {value:'maxParticipants',label:'מקס משתתפים'},
+    {value:'allowGuest',  label:'אפשרות לאורח (כן/לא)'},
+    {value:'secondaryResourceNote',label:'משאב משני (תיאור)'},
+    {value:'constant',    label:'ערך קבוע'},
+  ];
+  const DAYS_HEB_EXP=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+  const defaultFields=[
+    {id:'f1',name:'תאריך',         source:'date',       constant:''},
+    {id:'f2',name:'יום',           source:'day',        constant:''},
+    {id:'f3',name:'שעות',          source:'timeRange',  constant:''},
+    {id:'f4',name:'פעילות',        source:'activityName',constant:''},
+    {id:'f5',name:'סוג',           source:'activityType',constant:''},
+    {id:'f6',name:'מדריך',         source:'instructorName',constant:''},
+    {id:'f7',name:'סירה/כיתה',     source:'boatName',   constant:''},
+    {id:'f8',name:'מקס משתתפים',  source:'maxParticipants',constant:''},
+    {id:'f9',name:'אורח',          source:'allowGuest', constant:''},
+  ];
+  const FIELDS_VER='v2';
+  const loadFields=()=>{
+    try{
+      const raw=localStorage.getItem('sch_excel_fields');
+      const ver=localStorage.getItem('sch_excel_fields_ver');
+      if(raw&&ver===FIELDS_VER){
+        const s=JSON.parse(raw);
+        if(s&&s.length) return s;
+      }
+    }catch(e){}
+    return defaultFields;
+  };
+  const [fields,setFields]=React.useState(loadFields);
+  const [draggingIdx,setDraggingIdx]=React.useState(null);
+  const [dropIdx,setDropIdx]=React.useState(null);
+
+  const save=(flds)=>{
+    setFields(flds);
+    try{
+      localStorage.setItem('sch_excel_fields',JSON.stringify(flds));
+      localStorage.setItem('sch_excel_fields_ver',FIELDS_VER);
+    }catch(e){}
+  };
+
+  const addField=()=>{
+    save([...fields,{id:'f'+Date.now(),name:'שדה חדש',source:'activityName',constant:''}]);
+  };
+  const removeField=(i)=>{ const f=[...fields]; f.splice(i,1); save(f); };
+  const updateField=(i,key,val)=>{ const f=[...fields]; f[i]={...f[i],[key]:val}; save(f); };
+
+  const handleDragStart=(i)=>{ setDraggingIdx(i); };
+  const handleDragOver=(e,i)=>{ e.preventDefault(); setDropIdx(i); };
+  const handleDrop=(e,i)=>{
+    e.preventDefault();
+    if(draggingIdx===null||draggingIdx===i){setDraggingIdx(null);setDropIdx(null);return;}
+    const f=[...fields];
+    const [moved]=f.splice(draggingIdx,1);
+    f.splice(i,0,moved);
+    save(f);
+    setDraggingIdx(null);setDropIdx(null);
+  };
+
+  const activityMap=React.useMemo(()=>{
+    const m={};
+    (activities||[]).forEach(a=>{m[a.name]=a;});
+    return m;
+  },[activities]);
+
+  const resolveCell=(s,src)=>{
+    const[yy,mm]=month.split('-').map(Number);
+    switch(src){
+      case 'date':
+        if(!s.date) return '';
+        return `${String(s.date).padStart(2,'0')}/${String(mm).padStart(2,'0')}/${yy}`;
+      case 'day':{
+        const dow=s.dayOfWeek!=null?s.dayOfWeek:new Date(yy,mm-1,s.date).getDay();
+        return DAYS_HEB_EXP[dow]||'';
+      }
+      case 'startHour':  return s.startHour||'';
+      case 'endHour':    return s.endHour||'';
+      case 'timeRange':  return (s.startHour||'')+((s.endHour&&s.startHour)?'\u2013'+s.endHour:'');
+      case 'activityName': return s.activityName||'';
+      case 'instructorName': return s.instructorName||'';
+      case 'boatName':   return s.boatName||s._classroomName||'';
+      case 'source':     return s.source||'';
+      case 'notes':      return s.notes||'';
+      case 'classroomName': return s._classroomName||'';
+      case 'activityType':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        if(!act&&s.source==='katmandu_wizard') return 'מודרכת תלמידים';
+        const typeMap={students:'מודרכת תלמידים',advanced:'מודרכות מתקדמות',club:'מודרכת מועדון'};
+        return typeMap[act?.activityType||''] || (act?.activityType||'');
+      }
+      case 'maxParticipants':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        if(!act&&s.source==='katmandu_wizard') return '4';
+        return act?.maxParticipants!=null?String(act.maxParticipants):'';
+      }
+      case 'allowGuest':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        if(act?.allowGuest===undefined||act?.allowGuest===null) return '';
+        return act.allowGuest?'כן':'לא';
+      }
+      case 'secondaryResourceNote':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        if(!act||!act.secondaryResource) return '';
+        const typeLabel=act.secondaryResource.type==='classroom'?'כיתה':'סירה';
+        const timingMap={first1:'שעה ראשונה',first2:'שעתיים ראשונות',all:'כל הפעילות'};
+        const timingLabel=timingMap[act.secondaryResource.timing]||act.secondaryResource.timing;
+        return typeLabel+' – '+timingLabel;
+      }
+      default:           return '';
+    }
+  };
+
+  const doExport=()=>{
+    if(!window.XLSX){alert('ספריית XLSX לא נטענה. רענן את הדף.');return;}
+    const[yy,mm]=month.split('-').map(Number);
+    const sorted=schedule.slice().sort((a,b)=>{
+      const d=a.date-b.date;
+      if(d!==0)return d;
+      return (a.startHour||'').localeCompare(b.startHour||'');
+    });
+    const header=fields.map(f=>f.name);
+    const rows=sorted.map(s=>
+      fields.map(f=>f.source==='constant'?f.constant:resolveCell(s,f.source))
+    );
+    const ws=XLSX.utils.aoa_to_sheet([header,...rows]);
+    // RTL column widths
+    ws['!cols']=fields.map(()=>({wch:18}));
+    ws['!views']=[{rightToLeft:true}];
+    // Style header row bold (basic)
+    const range=XLSX.utils.decode_range(ws['!ref']);
+    for(let C=range.s.c;C<=range.e.c;C++){
+      const addr=XLSX.utils.encode_cell({r:0,c:C});
+      if(!ws[addr])continue;
+      ws[addr].s={font:{bold:true},fill:{fgColor:{rgb:'D6E4F7'}}};
+    }
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,`\u05e9\u05d9\u05d1\u05d5\u05e6\u05d9\u05dd ${month}`);
+    XLSX.writeFile(wb,`schedule_${month}.xlsx`);
+    onClose();
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:9000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
+      <div style={{background:'var(--card,#fff)',borderRadius:14,width:680,maxWidth:'95vw',maxHeight:'90vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}} dir="rtl" onClick={e=>e.stopPropagation()}>
+        {/* Header */}
+        <div style={{padding:'14px 18px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+          <div>
+            <span style={{fontWeight:700,fontSize:15}}>📊 ייצוא שיבוצים לאקסל</span>
+            <span style={{fontSize:12,color:'var(--text-light)',marginRight:10}}>{schedule.length} רשומות | חודש {month}</span>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:18,cursor:'pointer',color:'var(--text-light)',lineHeight:1}}>✕</button>
+        </div>
+        {/* Instruction */}
+        <div style={{padding:'8px 18px',fontSize:12,color:'var(--text-light)',background:'var(--bg,#f8fafc)',borderBottom:'1px solid #e2e8f0',flexShrink:0}}>
+          גרור שורות לשינוי סדר עמודות. לחץ ✕ להסרת שדה. עבור "ערך קבוע" הזן את הטקסט בתיבה.
+        </div>
+        {/* Column list header */}
+        <div style={{display:'grid',gridTemplateColumns:'28px 1fr 1fr 140px 28px',gap:0,padding:'6px 18px',background:'var(--bg,#f8fafc)',borderBottom:'1px solid #e2e8f0',fontSize:12,fontWeight:600,color:'var(--text-light)',flexShrink:0}}>
+          <span></span><span>שם עמודה</span><span>מקור נתון</span><span>ערך קבוע</span><span></span>
+        </div>
+        {/* Scrollable field list */}
+        <div style={{overflowY:'auto',flex:1}}>
+          {fields.map((f,i)=>(
+            <div key={f.id}
+              draggable
+              onDragStart={()=>handleDragStart(i)}
+              onDragEnd={()=>{setDraggingIdx(null);setDropIdx(null);}}
+              onDragOver={e=>handleDragOver(e,i)}
+              onDrop={e=>handleDrop(e,i)}
+              style={{display:'grid',gridTemplateColumns:'28px 1fr 1fr 140px 28px',gap:0,padding:'7px 18px',alignItems:'center',borderBottom:'1px solid #f1f5f9',background:dropIdx===i?'#eff6ff':i%2===0?'transparent':'rgba(0,0,0,.012)',cursor:'grab',opacity:draggingIdx===i?.4:1,transition:'background .1s'}}
+            >
+              <span style={{color:'#94a3b8',fontSize:14,cursor:'grab'}}>⠿</span>
+              <input
+                value={f.name}
+                onChange={e=>updateField(i,'name',e.target.value)}
+                style={{width:'90%',border:'1px solid transparent',borderRadius:5,padding:'3px 7px',fontSize:13,background:'transparent',color:'var(--text)',direction:'rtl'}}
+                onFocus={e=>{e.target.style.borderColor='var(--primary)';e.target.style.background='#fff';}}
+                onBlur={e=>{e.target.style.borderColor='transparent';e.target.style.background='transparent';}}
+              />
+              <select
+                value={f.source}
+                onChange={e=>updateField(i,'source',e.target.value)}
+                style={{width:'90%',border:'1px solid #e2e8f0',borderRadius:5,padding:'3px 6px',fontSize:12,background:'var(--card,#fff)',color:'var(--text)',direction:'rtl'}}
+              >
+                {SOURCES.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+              <div>
+                {f.source==='constant'
+                  ?<input
+                      value={f.constant||''}
+                      onChange={e=>updateField(i,'constant',e.target.value)}
+                      placeholder="הזן ערך..."
+                      style={{width:'90%',border:'1px solid var(--primary)',borderRadius:5,padding:'3px 7px',fontSize:12,background:'#eff6ff',color:'var(--text)',direction:'rtl'}}
+                    />
+                  :<span style={{fontSize:12,color:'#94a3b8',paddingRight:4}}>—</span>
+                }
+              </div>
+              <button onClick={()=>removeField(i)} style={{background:'none',border:'none',fontSize:14,cursor:'pointer',color:'#94a3b8',padding:2,lineHeight:1}}>✕</button>
+            </div>
+          ))}
+          <div style={{padding:'10px 18px'}}>
+            <button onClick={addField} style={{width:'100%',padding:'7px',border:'1px dashed #cbd5e1',borderRadius:7,background:'transparent',color:'var(--text-light)',fontSize:13,cursor:'pointer'}}>+ הוסף שדה</button>
+          </div>
+        </div>
+        {/* Footer */}
+        <div style={{padding:'12px 18px',borderTop:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,background:'var(--card,#fff)'}}>
+          <span style={{fontSize:12,color:'var(--text-light)'}}>הגדרות שדות נשמרות אוטומטית לשימוש חוזר</span>
+          <div style={{display:'flex',gap:10}}>
+            <button onClick={()=>save(defaultFields.map(f=>({...f,constant:''})))} style={{padding:'7px 14px',fontSize:13,border:'1px solid #e2e8f0',borderRadius:7,background:'transparent',color:'var(--text-light)',cursor:'pointer'}}>אפס לברירת מחדל</button>
+            <button onClick={doExport} style={{padding:'7px 18px',fontSize:13,fontWeight:700,border:'none',borderRadius:7,background:'var(--primary)',color:'#fff',cursor:'pointer'}}>⬇ ייצא xlsx</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StatsTab({instructors,activities,boats,availability,assignments,month,crmEvents=[],changeLog=[],clearLog=()=>{}}){
   // Use the NEW schedule data: assignments[`schedule_${month}`] = array of items
   const rawSchedule = assignments[`schedule_${month}`];
@@ -6181,6 +6471,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month,c
 
   const [exportModal,setExportModal]=React.useState(null);
   const [showLog,setShowLog]=React.useState(false);
+  const [showExcelExport,setShowExcelExport]=React.useState(false);
 
   const extractCrmName=(text)=>{
     if(!text) return null;
@@ -6328,26 +6619,9 @@ function StatsTab({instructors,activities,boats,availability,assignments,month,c
           <div className="number" style={{fontSize:18,color:showLog?'#fff':'var(--primary)'}}>{changeLog.length}</div>
           <div className="label" style={{color:showLog?'rgba(255,255,255,.85)':'var(--text-light)'}}>📋 יומן שינויים</div>
         </div>
-        <div className="stat-card" style={{cursor:'pointer'}} onClick={()=>{
-          const rows=[['תאריך','יום','שעות','פעילות','מדריך']];
-          const[yy,mm]=month.split('-').map(Number);
-          schedule.slice().sort((a,b)=>a.date-b.date||(a.startHour||'').localeCompare(b.startHour||'')).forEach(s=>{
-            const dow=s.dayOfWeek!=null?s.dayOfWeek:new Date(yy,mm-1,s.date).getDay();
-            rows.push([
-              `${String(s.date).padStart(2,'0')}/${String(mm).padStart(2,'0')}/${yy}`,
-              DAYS_HEB[dow]||'',
-              `${s.startHour||''}${s.endHour?'–'+s.endHour:''}`,
-              s.activityName||'',
-              s.instructorName||''
-            ]);
-          });
-          const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\r\n');
-          const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
-          const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-          a.download=`schedule_${month}.csv`;a.click();
-        }}>
+        <div className="stat-card" style={{cursor:'pointer'}} onClick={()=>setShowExcelExport(true)}>
           <div className="number" style={{fontSize:18,color:'var(--primary)'}}>{schedule.length}</div>
-          <div className="label">📤 ייצוא CSV</div>
+          <div className="label">📊 ייצוא Excel</div>
         </div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
@@ -6439,6 +6713,7 @@ function StatsTab({instructors,activities,boats,availability,assignments,month,c
           </div>
         </div>
       );})()}
+      {showExcelExport&&<ExcelExportConfigModal schedule={schedule} month={month} instructors={instructors} boats={boats} activities={activities} onClose={()=>setShowExcelExport(false)}/>}
       {exportModal&&<InstructorExportModal stat={exportModal} month={month} onClose={()=>setExportModal(null)}/>}
       {/* ── Change Log Drawer ── */}
       {showLog&&(
