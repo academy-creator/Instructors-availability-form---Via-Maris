@@ -160,7 +160,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v6.97';
+const SCHEDULER_VERSION = 'v7.02';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -473,6 +473,7 @@ function App(){
     try{return JSON.parse(localStorage.getItem('sch_room_boat_map'))||{};}catch{return {};}
   });
   const [toast,setToast]=useState(null);
+  const [showGlobalLog,setShowGlobalLog]=useState(false);
   const [month,setMonth]=useState(()=>{
     try { const s=localStorage.getItem('sch_selected_month'); if(s) return s; } catch{}
     // Default to NEXT month — managers usually plan one month ahead
@@ -548,7 +549,9 @@ function App(){
   const [changeLog,setChangeLog]=useState([]);
   // Use a ref so effects always call the latest version without re-subscribing
   const _addLog=useRef(null);
+  const _suppressLog=useRef(false);
   _addLog.current=(entry)=>{
+    if(_suppressLog.current)return;
     const ts=new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     setChangeLog(prev=>[{id:Date.now()+Math.random(),ts,...entry},...prev].slice(0,500));
   };
@@ -557,6 +560,62 @@ function App(){
   const _prevInsts=useRef(null);
   const _prevBoats=useRef(null);
   const _prevActs=useRef(null);
+  // ── Undo / Redo ──────────────────────────────────────────────
+  const undoStack=useRef([]);
+  const redoStack=useRef([]);
+  const [_histVer,_setHistVer]=useState(0);
+  const _undoRef=useRef(null);
+  _undoRef.current={
+    push:()=>{
+      // Save assignments snapshot + current log length so undo can trim the log
+      undoStack.current=[...undoStack.current.slice(-49),{snap:JSON.parse(JSON.stringify(assignments)),logLen:changeLog.length}];
+      redoStack.current=[];
+      _setHistVer(v=>v+1);
+    },
+    undo:()=>{
+      if(!undoStack.current.length){showToast('אין פעולות לביטול');return;}
+      const entry=undoStack.current[undoStack.current.length-1];
+      undoStack.current=undoStack.current.slice(0,-1);
+      // Log entries added by this action = front slice
+      const removedEntries=changeLog.slice(0,Math.max(0,changeLog.length-entry.logLen));
+      redoStack.current=[...redoStack.current.slice(-49),{snap:JSON.parse(JSON.stringify(assignments)),logLen:entry.logLen,removedEntries}];
+      // Suppress the assignments-watcher from adding new log lines for this undo
+      _suppressLog.current=true;
+      setAssignments(entry.snap);
+      // Trim the log back to before the action
+      setChangeLog(entry.logLen>0?changeLog.slice(changeLog.length-entry.logLen):[]);
+      _setHistVer(v=>v+1);
+      showToast('↩ UNDO');
+      setTimeout(()=>{_suppressLog.current=false;},300);
+    },
+    redo:()=>{
+      if(!redoStack.current.length){showToast('אין פעולות לחזרה');return;}
+      const entry=redoStack.current[redoStack.current.length-1];
+      redoStack.current=redoStack.current.slice(0,-1);
+      undoStack.current=[...undoStack.current.slice(-49),{snap:JSON.parse(JSON.stringify(assignments)),logLen:changeLog.length}];
+      _suppressLog.current=true;
+      setAssignments(entry.snap);
+      // Restore the log entries that were removed by undo
+      if(entry.removedEntries&&entry.removedEntries.length>0){
+        setChangeLog(prev=>[...entry.removedEntries,...prev].slice(0,500));
+      }
+      _setHistVer(v=>v+1);
+      showToast('↪ REDO');
+      setTimeout(()=>{_suppressLog.current=false;},300);
+    },
+  };
+  const pushUndoSnap=()=>_undoRef.current.push();
+  useEffect(()=>{
+    const _kh=(e)=>{
+      // Use e.code (layout-independent) to handle Hebrew/other keyboards
+      const isZ=e.code==='KeyZ'||e.key==='z'||e.key==='Z';
+      const isY=e.code==='KeyY'||e.key==='y'||e.key==='Y';
+      if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&isZ){e.preventDefault();_undoRef.current.undo();}
+      if(((e.ctrlKey||e.metaKey)&&e.shiftKey&&isZ)||((e.ctrlKey||e.metaKey)&&!e.shiftKey&&isY)){e.preventDefault();_undoRef.current.redo();}
+    };
+    window.addEventListener('keydown',_kh);
+    return()=>window.removeEventListener('keydown',_kh);
+  },[]);
 
   // Watch assignments
   useEffect(()=>{
@@ -576,10 +635,15 @@ function App(){
       }));
       nArr.forEach(n=>{
         const p=pArr.find(pp=>pp.id===n.id);
-        if(p&&JSON.stringify(p)!==JSON.stringify(n))_addLog.current({
-          type:'assignment',action:'עודכן',icon:'📅',
-          detail:`${n.activityName||''}${n.boatName?' | '+n.boatName:''} | יום ${n.date||'?'} ${n.startHour||''}${n.endHour?'–'+n.endHour:''}`,month:mo
-        });
+        if(p&&JSON.stringify(p)!==JSON.stringify(n)){
+          const _diffs=[];
+          if(p.date!==n.date)_diffs.push(`תאריך: ${p.date}→${n.date}`);
+          if(p.startHour!==n.startHour||p.endHour!==n.endHour)_diffs.push(`שעה: ${p.startHour||'?'}–${p.endHour||'?'}→${n.startHour||'?'}–${n.endHour||'?'}`);
+          if(p.boatName!==n.boatName)_diffs.push(`סירה: ${p.boatName||'—'}→${n.boatName||'—'}`);
+          if(p.instructorName!==n.instructorName)_diffs.push(`מדריך: ${p.instructorName||'—'}→${n.instructorName||'—'}`);
+          if(p.activityName!==n.activityName)_diffs.push(`פעילות: ${p.activityName||'—'}→${n.activityName||'—'}`);
+          _addLog.current({type:'assignment',action:'עודכן',icon:'✏️',detail:`${n.activityName||''} | יום ${n.date||'?'} | ${_diffs.length?_diffs.join(' | '):'שונה'}`,month:mo});
+        }
       });
     });
     _prevAss.current=assignments;
@@ -703,6 +767,9 @@ function App(){
           <div className="subtitle">ניהול זמינות, יכולות ושיבוצים</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button onClick={()=>setShowGlobalLog(v=>!v)} title="יומן שינויים" style={{padding:'5px 11px',borderRadius:7,border:'1px solid rgba(255,255,255,.35)',background:showGlobalLog?'rgba(255,255,255,.35)':'rgba(255,255,255,.15)',color:'#fff',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>📋 LOGBOOK{changeLog.length>0?` (${changeLog.length})`:''}</button>
+          <button onClick={()=>_undoRef.current.undo()} title="בטל פעולה אחרונה (Ctrl+Z)" style={{padding:'5px 11px',borderRadius:7,border:'1px solid rgba(255,255,255,.35)',background:'rgba(255,255,255,.15)',color:_histVer>=0&&undoStack.current.length>0?'#fff':'rgba(255,255,255,.4)',cursor:_histVer>=0&&undoStack.current.length>0?'pointer':'not-allowed',fontSize:12,whiteSpace:'nowrap'}}>UNDO{_histVer>=0&&undoStack.current.length>0?` (${undoStack.current.length})`:''}</button>
+          <button onClick={()=>_undoRef.current.redo()} title="בצע מחדש (Ctrl+Y / Ctrl+Shift+Z)" style={{padding:'5px 11px',borderRadius:7,border:'1px solid rgba(255,255,255,.35)',background:'rgba(255,255,255,.15)',color:_histVer>=0&&redoStack.current.length>0?'#fff':'rgba(255,255,255,.4)',cursor:_histVer>=0&&redoStack.current.length>0?'pointer':'not-allowed',fontSize:12,whiteSpace:'nowrap'}}>REDO{_histVer>=0&&redoStack.current.length>0?` (${redoStack.current.length})`:''}</button>
           <input type="month" value={month} onChange={e=>setMonth(e.target.value)}
             style={{padding:'6px 12px',borderRadius:8,border:'1px solid rgba(255,255,255,.3)',background:'rgba(255,255,255,.15)',color:'#fff',fontSize:13}}/>
           <button className="btn btn-outline" style={{borderColor:'rgba(255,255,255,.3)',color:'#fff'}}
@@ -858,13 +925,51 @@ function App(){
         {tab==='boatavail'&&<BoatAvailabilityTab boats={boats} crmEvents={crmEvents} setCrmEvents={setCrmEvents} roomBoatMap={roomBoatMap} setRoomBoatMap={setRoomBoatMap} month={month} showToast={showToast}/>}
         {tab==='schedule'&&<ScheduleTab instructors={instructors} activities={activities} boats={boats} availability={availability} setAvailability={setAvailability} assignments={assignments} setAssignments={setAssignments} month={month} crmEvents={crmEvents} roomBoatMap={roomBoatMap} showToast={showToast} allSkills={allSkills} daylightStart={daylightStart} daylightEnd={daylightEnd}/>}
         {tab==='stats'&&<StatsTab instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} month={month} crmEvents={crmEvents} changeLog={changeLog} clearLog={()=>setChangeLog([])}/>}
-        {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={curWeeklySelections} initDate={assignmentViewDate} setTab={setTab}/>}
-        {tab==='katamaran'&&<KatamaranWizard instructors={instructors} activities={activities} boats={boats} crmEvents={crmEvents} roomBoatMap={roomBoatMap} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast}/>}
-        {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} katCourses={katCourses} setKatCourses={setKatCourses} weeklySelections={curWeeklySelections}/>}
+        {tab==='assignmentview'&&<AssignmentDayView boats={boats} instructors={instructors} assignments={assignments} setAssignments={setAssignments} activities={activities} crmEvents={crmEvents} roomBoatMap={roomBoatMap} month={month} availability={availability} weeklySelections={curWeeklySelections} initDate={assignmentViewDate} setTab={setTab} pushUndoSnap={pushUndoSnap}/>}
+        {tab==='katamaran'&&<KatamaranWizard instructors={instructors} activities={activities} boats={boats} crmEvents={crmEvents} roomBoatMap={roomBoatMap} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} pushUndoSnap={pushUndoSnap}/>}
+        {tab==='katmandu'&&<KatmanduWizard instructors={instructors} activities={activities} boats={boats} availability={availability} assignments={assignments} setAssignments={setAssignments} month={month} showToast={showToast} katCourses={katCourses} setKatCourses={setKatCourses} weeklySelections={curWeeklySelections} pushUndoSnap={pushUndoSnap}/>}
         {tab==='weeklyplan'&&<WeeklyPlanTab instructors={instructors} availability={availability} month={month} activities={activities} assignments={assignments} setTab={setTab} weeklySelections={curWeeklySelections} setWeeklySelections={setCurWeeklySelections} setAssignmentViewDate={setAssignmentViewDate} weekIdx={weeklyPlanIdx} setWeekIdx={setWeeklyPlanIdx} showWeekend={weeklyPlanShowWeekend} setShowWeekend={setWeeklyPlanShowWeekend}/>}
         {tab==='inbox'&&<InboxTab inbox={inbox} setInbox={setInbox} instructors={instructors} setInstructors={setInstructors} availability={availability} setAvailability={setAvailability} setAssignments={setAssignments} setMonth={setMonth} currentMonth={month} showToast={showToast}/>}
         </ErrorBoundary>
       </div>
+      {showGlobalLog&&(
+        <div style={{position:'fixed',top:0,right:0,bottom:0,width:400,background:'var(--card,#fff)',boxShadow:'-6px 0 32px rgba(0,0,0,.18)',zIndex:2000,display:'flex',flexDirection:'column',borderLeft:'1px solid #e2e8f0'}} dir="rtl">
+          <div style={{padding:'12px 16px',borderBottom:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--primary)',color:'#fff',flexShrink:0}}>
+            <span style={{fontWeight:700,fontSize:15}}>📋 LOGBOOK — יומן שינויים</span>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <span style={{fontSize:12,opacity:.8}}>{changeLog.length} רשומות</span>
+              <button onClick={()=>setShowGlobalLog(false)} style={{background:'rgba(255,255,255,.2)',border:'none',color:'#fff',fontSize:18,cursor:'pointer',borderRadius:6,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>✕</button>
+            </div>
+          </div>
+          {changeLog.length===0
+            ?<div style={{padding:32,color:'var(--text-light)',textAlign:'center',fontSize:13}}>
+               <div style={{fontSize:36,marginBottom:8}}>📭</div>
+               אין שינויים עדיין בסשן הנוכחי
+             </div>
+            :<div style={{overflowY:'auto',flex:1}}>
+              {changeLog.map((entry,i)=>{
+                const actionColor=entry.action==='הוסר'?{bg:'#fef2f2',text:'#dc2626'}:entry.action==='הוסף'?{bg:'#f0fdf4',text:'#16a34a'}:entry.action==='עודכן'?{bg:'#eff6ff',text:'#2563eb'}:{bg:'#fafafa',text:'#64748b'};
+                return(
+                  <div key={entry.id} style={{padding:'9px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',gap:10,alignItems:'flex-start',background:i%2===0?'transparent':'rgba(0,0,0,.012)'}}>
+                    <span style={{fontSize:18,flexShrink:0,marginTop:1}}>{entry.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:3,flexWrap:'wrap'}}>
+                        <span style={{fontSize:11,fontWeight:700,color:actionColor.text,background:actionColor.bg,padding:'2px 8px',borderRadius:4,flexShrink:0}}>{entry.action}</span>
+                        {entry.month&&<span style={{fontSize:10,color:'var(--text-light)',flexShrink:0}}>{entry.month}</span>}
+                        <span style={{fontSize:10,color:'var(--text-light)',marginRight:'auto'}}>{entry.ts}</span>
+                      </div>
+                      <div style={{fontSize:12,color:'var(--text)',direction:'rtl',wordBreak:'break-word'}} title={entry.detail}>{entry.detail}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+          <div style={{padding:'10px 14px',borderTop:'1px solid #e2e8f0',flexShrink:0,display:'flex',gap:8}}>
+            <button onClick={()=>{setChangeLog([]);}} style={{flex:1,fontSize:12,padding:'8px',borderRadius:6,border:'1px solid #fca5a5',background:'#fff',cursor:'pointer',color:'#dc2626',fontWeight:600}}>🗑 נקה יומן</button>
+          </div>
+        </div>
+      )}
       <div className="version-tag">{SCHEDULER_VERSION}</div>
       {toast&&<div className="toast">{toast}</div>}
     </div>
@@ -6227,6 +6332,8 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
     {value:'day',         label:'יום בשבוע'},
     {value:'startHour',   label:'שעת התחלה'},
     {value:'endHour',     label:'שעת סיום'},
+    {value:'startDateTime',label:'תאריך + שעת התחלה (DD/MM/YYYY HH:MM)'},
+    {value:'endDateTime',  label:'תאריך + שעת סיום (DD/MM/YYYY HH:MM)'},
     {value:'timeRange',   label:'שעות (טווח)'},
     {value:'activityName',label:'שם פעילות'},
     {value:'instructorName',label:'מדריך'},
@@ -6312,6 +6419,14 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
       }
       case 'startHour':  return s.startHour||'';
       case 'endHour':    return s.endHour||'';
+      case 'startDateTime':{
+        if(!s.date||!s.startHour) return (s.date?`${String(s.date).padStart(2,'0')}/${String(mm).padStart(2,'0')}/${yy}`:'')+(s.startHour?' '+s.startHour:'');
+        return `${String(s.date).padStart(2,'0')}/${String(mm).padStart(2,'0')}/${yy} ${s.startHour}`;
+      }
+      case 'endDateTime':{
+        if(!s.date||!s.endHour) return (s.date?`${String(s.date).padStart(2,'0')}/${String(mm).padStart(2,'0')}/${yy}`:'')+(s.endHour?' '+s.endHour:'');
+        return `${String(s.date).padStart(2,'0')}/${String(mm).padStart(2,'0')}/${yy} ${s.endHour}`;
+      }
       case 'timeRange':  return (s.startHour||'')+((s.endHour&&s.startHour)?'\u2013'+s.endHour:'');
       case 'activityName': return s.activityName||'';
       case 'instructorName': return s.instructorName||'';
@@ -7931,7 +8046,7 @@ function ManualEventDialog({dlg,dlgActId,setDlgActId,dlgStart,setDlgStart,dlgIns
   );
 }
 
-function AssignmentDayView({boats,instructors,assignments,setAssignments,activities,crmEvents,roomBoatMap,month,availability,weeklySelections,initDate,setTab}){
+function AssignmentDayView({boats,instructors,assignments,setAssignments,activities,crmEvents,roomBoatMap,month,availability,weeklySelections,initDate,setTab,pushUndoSnap}){
   const BOAT_COL_ORDER=['קטמנדו','סבא שמשון','דניאל','ליאור','רונית','נאווה','מישל','כרמן','כרמל גת','רוני','אסתר','ושתי','עידו'];
   const sortedBoats=useMemo(()=>[...boats].sort((a,b)=>{
     const ia=BOAT_COL_ORDER.indexOf(a.name),ib=BOAT_COL_ORDER.indexOf(b.name);
@@ -8292,7 +8407,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
         if(filterBoatId&&ev.boatId!==filterBoatId)ok=false;
         if(ok&&filterInstId){
           const fi=instructors.find(ii=>ii.id===filterInstId);
-          if(fi){if(!ev.subtitle.includes(fi.name.split(' ')[0]))ok=false;}else ok=false;
+          if(fi){const _np=fi.name.trim().split(/\s+/);if(!_np.every(p=>ev.subtitle.includes(p)))ok=false;}else ok=false;
         }
         if(ok&&filterActName){const _nm=s=>(s||'').replace(/["״]/g,'');const _bt=boats.find(b=>b.id===ev.boatId)?.type||'';if(_nm(_bt)!==_nm(filterActName))ok=false;}
         if(ok&&filterActSpecific)ok=false; // CRM events have no specific activityName — skip them when filterActSpecific active
@@ -8320,6 +8435,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     const act=activities.find(a=>a.id===clsActId)||null;
     const inst=instructors.find(i=>i.id===clsInstId)||null;
     const item={id:clsDlg.mode==='edit'?clsDlg.ev.id:`cls_${Date.now()}`,_classroomName:clsDlg.classroomName,date:selDate,startHour:clsStart,endHour:clsEnd,activityId:act?.id||null,activityName:act?.name||'',instructorId:inst?.id||null,instructorName:inst?.name||'',source:'classroom_manual',boatId:null};
+    pushUndoSnap?.();
     setAssignments(prev=>{
       const arr=Array.isArray(prev[schedKey])?[...prev[schedKey]]:[];
       if(clsDlg.mode==='edit'){const idx=arr.findIndex(s=>s.id===item.id);if(idx>=0)arr[idx]={...arr[idx],...item};else arr.push(item);}
@@ -8329,6 +8445,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     setClsDlg(null);
   };
   const deleteClsEvent=(id)=>{
+    pushUndoSnap?.();
     setAssignments(prev=>({...prev,[schedKey]:(Array.isArray(prev[schedKey])?prev[schedKey]:[]).filter(s=>s.id!==id)}));
     setClsDlg(null);
   };
@@ -8369,6 +8486,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     return{errors,warnings};
   };
   const saveAsgnEdit=(updatedItem)=>{
+    pushUndoSnap?.();
     setAssignments(prev=>{
       const arr=Array.isArray(prev[schedKey])?[...prev[schedKey]]:[];
       const idx=arr.findIndex(s=>s.id===updatedItem.id);
@@ -8418,6 +8536,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     setDlg({mode:'edit',boatId:ev.boatId,boatName:ev.boatName,boatTypes,selDate,event:ev});
   };
   const saveManualEvent=(data)=>{
+    pushUndoSnap?.();
     setAssignments(prev=>{
       const arr=Array.isArray(prev[schedKey])?[...prev[schedKey]]:[];
       if(data.id){const idx=arr.findIndex(s=>s.id===data.id);if(idx>=0)arr[idx]={...arr[idx],...data};else arr.push(data);}
@@ -8427,10 +8546,12 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     setDlg(null);
   };
   const deleteManualEvent=(id)=>{
+    pushUndoSnap?.();
     setAssignments(prev=>({...prev,[schedKey]:(Array.isArray(prev[schedKey])?prev[schedKey]:[]).filter(s=>s.id!==id)}));
     setDlg(null);
   };
   const handleDrop=(tBoatId,tH,evId)=>{
+    pushUndoSnap?.();
     setAssignments(prev=>{
       const arr=Array.isArray(prev[schedKey])?[...prev[schedKey]]:[];
       const idx=arr.findIndex(s=>s.id===evId);
@@ -8696,7 +8817,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
 // ═══════════════════════════════════════════════════════════════════════════
 // KATAMARAN WIZARD
 // ═══════════════════════════════════════════════════════════════════════════
-function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,availability,assignments,setAssignments,month,showToast}){
+function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,availability,assignments,setAssignments,month,showToast,pushUndoSnap}){
   const SLOTS=[
     {label:'9–13',classStart:'09:00',classEnd:'10:00',boatStart:'10:00',boatEnd:'13:00'},
     {label:'12–16',classStart:'12:00',classEnd:'13:00',boatStart:'13:00',boatEnd:'16:00'},
@@ -8829,6 +8950,7 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
         });
       });
     });
+    pushUndoSnap?.();
     setAssignments(prev=>({...prev,[key]:[...(prev[key]||[]),...newItems]}));
     showToast(`✓ שובצו ${selectedOpts.length} קורסי קטמרן (${newItems.length} שיבוצים)`);
     setSelected(new Set());
@@ -8894,7 +9016,7 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
 // ═══════════════════════════════════════════════════════════════════════════
 // KATMANDU WIZARD
 // ═══════════════════════════════════════════════════════════════════════════
-function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast,katCourses,setKatCourses,weeklySelections}){
+function KatmanduWizard({instructors,activities,boats,availability,assignments,setAssignments,month,showToast,katCourses,setKatCourses,weeklySelections,pushUndoSnap}){
   const courses=katCourses;
   const setCourses=setKatCourses;
   const katAct=React.useMemo(()=>activities.find(a=>a.name==='קטמנדו')||null,[activities]);
@@ -9026,6 +9148,7 @@ function KatmanduWizard({instructors,activities,boats,availability,assignments,s
         source:'katmandu_wizard',
       };
     });
+    pushUndoSnap?.();
     setAssignments(prev=>({...prev,[key]:[...existing,...newItems]}));
     setCourses(prev=>prev.map(c=>c.id===course.id?{...c,assigned:true}:c));
     showToast(`✓ נוצרו ${newItems.length} שיבוצים`);
