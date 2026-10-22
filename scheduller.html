@@ -160,7 +160,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v7.02';
+const SCHEDULER_VERSION = 'v7.03';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -1016,12 +1016,13 @@ function InstructorsTab({instructors,setInstructors,allSkills,syncFromSheet,shee
           <div className="empty-state"><div className="icon">👥</div><p>טרם הוספו מדריכים. לחץ "הוסף מדריך" להתחלה.</p></div>
         ):(
           <table>
-            <thead><tr><th>#</th><th>שם</th><th>עדיפות</th><th>מינ׳ שעות/יום</th><th>פעילות בודדת</th><th>אידיאל שעות/חודש</th><th>יכולות</th><th>פעולות</th></tr></thead>
+            <thead><tr><th>#</th><th>שם</th><th>מזהה צוות</th><th>עדיפות</th><th>מינ׳ שעות/יום</th><th>פעילות בודדת</th><th>אידיאל שעות/חודש</th><th>יכולות</th><th>פעולות</th></tr></thead>
             <tbody>
               {filtered.map((inst,i)=>(
                 <tr key={inst.id}>
                   <td style={{color:'var(--text-light)'}}>{i+1}</td>
                   <td style={{fontWeight:600}}>{inst.name}</td>
+                  <td style={{fontSize:12,color:'var(--text-light)',fontFamily:'monospace'}}>{inst.teamId||<span style={{color:'#ccc'}}>—</span>}</td>
                   <td><span className={`badge badge-${PRIORITY_COLORS[inst.priority]||'primary'}`}>{PRIORITY_LABELS[inst.priority]||inst.priority}</span></td>
                   <td style={{textAlign:'center'}}>{inst.minHoursPerDay ?? 5}</td>
                   <td style={{textAlign:'center',fontSize:16}}>{inst.allowSingleActivity ? '✅' : '—'}</td>
@@ -1073,6 +1074,7 @@ function InstructorModal({instructor,allSkills,onSave,onClose}){
   const [preferredBucket,setPreferredBucket]=useState(instructor?.preferredBucket ?? 'none');
   const [preferredBreakMin,setPreferredBreakMin]=useState(instructor?.preferredBreakMin ?? 0);
   const [newSkill,setNewSkill]=useState('');
+  const [teamId,setTeamId]=useState(instructor?.teamId||'');
   const [formNotes,setFormNotes]=useState(instructor?.formNotes||'');
 
   return(
@@ -1173,6 +1175,8 @@ function InstructorModal({instructor,allSkills,onSave,onClose}){
           </div>
         </div>
         <div className="form-group" style={{marginBottom:12}}>
+          <label>מזהה צוות</label>
+          <input value={teamId} onChange={e=>setTeamId(e.target.value)} placeholder="מזהה חיצוני (ל-CRM / Excel)..." style={{marginBottom:12}}/>
           <label>📝 הערות</label>
           <textarea value={formNotes} onChange={e=>setFormNotes(e.target.value)} rows={3} style={{width:'100%',resize:'vertical',fontSize:13,padding:8,borderRadius:6,border:'1px solid #fde047',background:'#fef9c3',color:'#713f12'}} placeholder="הערות מהטופס או הערות ידניות..."/>
         </div>
@@ -1209,6 +1213,7 @@ function InstructorModal({instructor,allSkills,onSave,onClose}){
             allowConsecutiveWeekend:!!allowConsecutiveWeekend,
             preferredBucket:preferredBucket||'none',
             preferredBreakMin:preferredBreakMin!==''?Number(preferredBreakMin):0,
+            teamId:teamId||'',
             formNotes:formNotes||''
           })}>
             {instructor?'עדכן':'הוסף'}
@@ -1267,7 +1272,7 @@ function BoatsTab({boats,setBoats,showToast}){
           <div className="empty-state"><div className="icon">⛵</div><p>טרם הוספו ספינות. הוסף ספינה כדי להתחיל לשבץ פעילויות מקבילות.</p></div>
         ):(
           <table>
-            <thead><tr><th>#</th><th>שם</th><th>סוג</th><th>מסגרות פעילות</th><th>סלוטים שיווצרו</th><th>פעולות</th></tr></thead>
+            <thead><tr><th>#</th><th>שם</th><th>מזהה משאב</th><th>סוג</th><th>מסגרות פעילות</th><th>סלוטים שיווצרו</th><th>פעולות</th></tr></thead>
             <tbody>
               {boats.map((b,i)=>{
                 const frames = getBoatFrames(b);
@@ -1276,6 +1281,7 @@ function BoatsTab({boats,setBoats,showToast}){
                 <tr key={b.id}>
                   <td style={{color:'var(--text-light)'}}>{i+1}</td>
                   <td style={{fontWeight:600}}>{b.name}</td>
+                  <td style={{fontSize:12,color:'var(--text-light)',fontFamily:'monospace'}}>{b.resourceId||<span style={{color:'#ccc'}}>—</span>}</td>
                   <td style={{fontSize:13}}>{b.type||'-'}</td>
                   <td style={{fontSize:12,fontFamily:'monospace'}}>{frames.length ? frames.map(f=>`${f.startTime}-${f.endTime} (כל ${f.slotInterval}ש')`).join(' · ') : '-'}</td>
                   <td style={{fontSize:11,lineHeight:1.4,fontFamily:'monospace'}}>{computedSlots.length?computedSlots.map(s=>`${s.start}-${s.end}`).join(', '):'-'}</td>
@@ -1303,6 +1309,7 @@ function BoatsTab({boats,setBoats,showToast}){
 
 function BoatModal({boat,onSave,onClose}){
   const [name,setName]=useState(boat?.name||'');
+  const [resourceId,setResourceId]=useState(boat?.resourceId||'');
   const [type,setType]=useState(boat?.type||'');
   // Frames: array of {startTime, endTime, slotInterval}. Each generates a sequence of slots.
   const [frames,setFrames]=useState(()=>{
@@ -1331,6 +1338,10 @@ function BoatModal({boat,onSave,onClose}){
               {BOAT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
             </select>
           </div>
+        </div>
+        <div className="form-group" style={{marginBottom:12}}>
+          <label>מזהה משאב</label>
+          <input value={resourceId} onChange={e=>setResourceId(e.target.value)} placeholder="מזהה חיצוני (ל-CRM / Excel)..."/>
         </div>
         <div className="form-group" style={{marginBottom:12}}>
           <label>מסגרות פעילות (כל מסגרת = שעת התחלה + מרווח + שעת סיום)</label>
@@ -1373,7 +1384,7 @@ function BoatModal({boat,onSave,onClose}){
           )}
         </div>
         <div style={{display:'flex',gap:8,marginTop:16}}>
-          <button className="btn btn-primary" disabled={!name.trim()} onClick={()=>onSave({name:name.trim(),type,frames:frames.map(f=>({...f, slotInterval:Number(f.slotInterval)}))})}>
+          <button className="btn btn-primary" disabled={!name.trim()} onClick={()=>onSave({name:name.trim(),type,resourceId:resourceId||'',frames:frames.map(f=>({...f, slotInterval:Number(f.slotInterval)}))})}>
             {boat?'עדכן':'הוסף'}
           </button>
           <button className="btn btn-outline" onClick={onClose}>ביטול</button>
@@ -1455,6 +1466,8 @@ function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,dayli
                         <thead>
                           <tr>
                             <th>שם פעילות</th>
+                            <th>מזהה</th>
+                            <th>קהל יעד</th>
                             <th>אורך</th>
                             <th>סה״כ/חודש</th>
                             <th>מדריכים</th>
@@ -1468,6 +1481,8 @@ function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,dayli
                           {acts.map(a=>(
                             <tr key={a.id} style={(a.totalPerMonth||0)===0?{opacity:.5}:{}}>
                               <td style={{fontWeight:600}}>{a.name}{(a.totalPerMonth||0)===0?' (מושבת)':''}{(a.specificDates&&a.specificDates.length>0)?' 📅':''}</td>
+                              <td style={{fontSize:12,color:'var(--text-light)',fontFamily:'monospace'}}>{a.activityExtId||<span style={{color:'#ccc'}}>—</span>}</td>
+                              <td style={{fontSize:12}}>{a.targetAudience==='student'?'תלמיד':a.targetAudience==='skipper'?'סקיפר':a.targetAudience==='both'?'תלמיד+סקיפר':<span style={{color:'#ccc'}}>—</span>}</td>
                               <td style={{fontSize:13}}>{a.durationHours||3}ש'</td>
                               <td style={{fontWeight:600,fontSize:14}}>{a.totalPerMonth||0}</td>
                               <td style={{fontSize:13}}>{a.instructorsNeeded||1}</td>
@@ -1532,6 +1547,8 @@ function ActivityModal({activity,boats,onSave,onClose}){
   const [showBuckets,setShowBuckets]=useState(false);
   const [maxParticipants,setMaxParticipants]=useState(activity?.maxParticipants ?? '');
   const [allowGuest,setAllowGuest]=useState(activity?.allowGuest ?? false);
+  const [activityExtId,setActivityExtId]=useState(activity?.activityExtId||'');
+  const [targetAudience,setTargetAudience]=useState(activity?.targetAudience||'student');
   const [hasSecondaryResource,setHasSecondaryResource]=useState(activity?.secondaryResource!=null);
   const [secondaryResourceType,setSecondaryResourceType]=useState(activity?.secondaryResource?.type||'classroom');
   const [secondaryResourceTiming,setSecondaryResourceTiming]=useState(activity?.secondaryResource?.timing||'first1');
@@ -1564,6 +1581,20 @@ function ActivityModal({activity,boats,onSave,onClose}){
               <option value="students">מודרכת תלמידים</option>
               <option value="advanced">מודרכות מתקדמות</option>
               <option value="club">מודרכת מועדון</option>
+            </select>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group" style={{flex:1}}>
+            <label>מזהה פעילות</label>
+            <input value={activityExtId} onChange={e=>setActivityExtId(e.target.value)} placeholder="מזהה חיצוני (ל-CRM / Excel)..."/>
+          </div>
+          <div className="form-group" style={{flex:1.5}}>
+            <label>אוכלוסיית יעד</label>
+            <select value={targetAudience} onChange={e=>setTargetAudience(e.target.value)}>
+              <option value="student">תלמיד</option>
+              <option value="skipper">סקיפר</option>
+              <option value="both">תלמיד + סקיפר</option>
             </select>
           </div>
         </div>
@@ -1789,7 +1820,9 @@ function ActivityModal({activity,boats,onSave,onClose}){
               },
               maxParticipants: maxParticipants===''?null:Number(maxParticipants),
               allowGuest: allowGuest,
-              secondaryResource: hasSecondaryResource?{type:secondaryResourceType,timing:secondaryResourceTiming}:null
+              secondaryResource: hasSecondaryResource?{type:secondaryResourceType,timing:secondaryResourceTiming}:null,
+              activityExtId: activityExtId||'',
+              targetAudience: targetAudience||'student'
             });
           }}>
             {activity?'עדכן':'הוסף'}
@@ -6345,6 +6378,10 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
     {value:'maxParticipants',label:'מקס משתתפים'},
     {value:'allowGuest',  label:'אפשרות לאורח (כן/לא)'},
     {value:'secondaryResourceNote',label:'משאב משני (תיאור)'},
+    {value:'activityExtId',label:'מזהה פעילות'},
+    {value:'targetAudience',label:'אוכלוסיית יעד'},
+    {value:'instructorTeamId',label:'מזהה צוות (מדריך)'},
+    {value:'boatResourceId',label:'מזהה משאב (סירה)'},
     {value:'constant',    label:'ערך קבוע'},
   ];
   const DAYS_HEB_EXP=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
@@ -6406,6 +6443,16 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
     (activities||[]).forEach(a=>{m[a.name]=a;});
     return m;
   },[activities]);
+  const instructorMap=React.useMemo(()=>{
+    const m={};
+    (instructors||[]).forEach(i=>{m[i.id]=i;m[i.name]=i;});
+    return m;
+  },[instructors]);
+  const boatMap=React.useMemo(()=>{
+    const m={};
+    (boats||[]).forEach(b=>{m[b.id]=b;m[b.name]=b;});
+    return m;
+  },[boats]);
 
   const resolveCell=(s,src)=>{
     const[yy,mm]=month.split('-').map(Number);
@@ -6461,6 +6508,26 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
         const timingMap={first1:'שעה ראשונה',first2:'שעתיים ראשונות',all:'כל הפעילות'};
         const timingLabel=timingMap[act.secondaryResource.timing]||act.secondaryResource.timing;
         return typeLabel+' – '+timingLabel;
+      }
+      case 'activityExtId':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        return act?.activityExtId||'';
+      }
+      case 'targetAudience':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        const ta=act?.targetAudience;
+        if(!ta) return '';
+        return ta==='student'?'תלמיד':ta==='skipper'?'סקיפר':ta==='both'?'תלמיד + סקיפר':ta;
+      }
+      case 'instructorTeamId':{
+        let inst=instructorMap[s.instructorId||'']||instructorMap[s.instructorName||''];
+        return inst?.teamId||'';
+      }
+      case 'boatResourceId':{
+        let boat=boatMap[s.boatId||'']||boatMap[s.boatName||''];
+        return boat?.resourceId||'';
       }
       default:           return '';
     }
