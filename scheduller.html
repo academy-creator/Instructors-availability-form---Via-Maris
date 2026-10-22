@@ -160,7 +160,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v7.04';
+const SCHEDULER_VERSION = 'v7.05';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -241,7 +241,7 @@ function generateId(){ return Math.random().toString(36).substr(2,9); }
 const BOAT_TYPES = ['בי״ס', 'מונוהול', 'קטמרן', 'מנועית', 'קטמנדו', 'כיתה'];
 
 // Hour options for whole-hour selects (00:00 through 23:00)
-const HOUR_OPTIONS = Array.from({length:24},(_,h)=>`${h.toString().padStart(2,'0')}:00`);
+const HOUR_OPTIONS = Array.from({length:48},(_,i)=>{const h=Math.floor(i/2),m=i%2===0?'00':'30';return `${h.toString().padStart(2,'0')}:${m}`;});
 
 // Default time buckets for activity scheduling. Each activity can override these.
 const DEFAULT_BUCKETS = {
@@ -1283,7 +1283,7 @@ function BoatsTab({boats,setBoats,showToast}){
                   <td style={{fontWeight:600}}>{b.name}</td>
                   <td style={{fontSize:12,color:'var(--text-light)',fontFamily:'monospace'}}>{b.resourceId||<span style={{color:'#ccc'}}>—</span>}</td>
                   <td style={{fontSize:13}}>{b.type||'-'}</td>
-                  <td style={{fontSize:12,fontFamily:'monospace'}}>{frames.length ? frames.map(f=>`${f.startTime}-${f.endTime} (כל ${f.slotInterval}ש')`).join(' · ') : '-'}</td>
+                  <td style={{fontSize:12,fontFamily:'monospace'}}>{frames.length ? frames.map(f=>{const iv=Number(f.slotInterval);const ivLbl=iv===0.5?'30 דק׳':iv%1===0?`${iv}ש'`:`${iv}ש'`;return `${f.startTime}-${f.endTime} (כל ${ivLbl})`;}).join(' · ') : '-'}</td>
                   <td style={{fontSize:11,lineHeight:1.4,fontFamily:'monospace'}}>{computedSlots.length?computedSlots.map(s=>`${s.start}-${s.end}`).join(', '):'-'}</td>
                   <td>
                     <div style={{display:'flex',gap:4}}>
@@ -1361,11 +1361,18 @@ function BoatModal({boat,onSave,onClose}){
                 </select>
                 <span className="frame-lbl">מרווח</span>
                 <select value={f.slotInterval} onChange={e=>updateFrame(i,'slotInterval',Number(e.target.value))}>
+                  <option value={0.5}>30 דק׳</option>
                   <option value={1}>1 שעה</option>
+                  <option value={1.5}>1.5 שעות</option>
                   <option value={2}>2 שעות</option>
+                  <option value={2.5}>2.5 שעות</option>
                   <option value={3}>3 שעות</option>
+                  <option value={3.5}>3.5 שעות</option>
                   <option value={4}>4 שעות</option>
+                  <option value={4.5}>4.5 שעות</option>
                   <option value={5}>5 שעות</option>
+                  <option value={5.5}>5.5 שעות</option>
+                  <option value={6}>6 שעות</option>
                 </select>
                 {frames.length>1 && <button type="button" className="btn-icon" onClick={()=>removeFrame(i)} title="הסר מסגרת">🗑</button>}
               </div>
