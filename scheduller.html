@@ -160,7 +160,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v7.03';
+const SCHEDULER_VERSION = 'v7.04';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -238,7 +238,7 @@ const AFTERNOON_HOURS={start:'13:00',end:'17:00'};
 function generateId(){ return Math.random().toString(36).substr(2,9); }
 
 // Boat types - single select (one of)
-const BOAT_TYPES = ['בי״ס', 'מונוהול', 'קטמרן', 'מנועית', 'קטמנדו'];
+const BOAT_TYPES = ['בי״ס', 'מונוהול', 'קטמרן', 'מנועית', 'קטמנדו', 'כיתה'];
 
 // Hour options for whole-hour selects (00:00 through 23:00)
 const HOUR_OPTIONS = Array.from({length:24},(_,h)=>`${h.toString().padStart(2,'0')}:00`);
@@ -2147,7 +2147,7 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
   // Visual L→R: עידו ושתי אסתר רוני כרמל גת כרמן מישל נאווה רונית ליאור דניאל סבא שמשון קטמנדו | כיתה 3 מגלן
   // RTL table: first DOM col = visually rightmost → reverse desired visual order for array
   const BOAT_COL_ORDER=['קטמנדו','סבא שמשון','דניאל','ליאור','רונית','נאווה','מישל','כרמן','כרמל גת','רוני','אסתר','ושתי','עידו'];
-  const CLASS_COL_ORDER=['מגלן','כיתה 3'];
+  const CLASS_COL_ORDER=boats.filter(b=>b.type==='כיתה').map(b=>b.name);
   const sortedBoats=useMemo(()=>[...boats].sort((a,b)=>{
     const ia=BOAT_COL_ORDER.indexOf(a.name),ib=BOAT_COL_ORDER.indexOf(b.name);
     if(ia===-1&&ib===-1)return(a.name||'').localeCompare(b.name||'','he');
@@ -6382,6 +6382,7 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
     {value:'targetAudience',label:'אוכלוסיית יעד'},
     {value:'instructorTeamId',label:'מזהה צוות (מדריך)'},
     {value:'boatResourceId',label:'מזהה משאב (סירה)'},
+    {value:'classroomResourceId',label:'מזהה משאב (כיתה)'},
     {value:'constant',    label:'ערך קבוע'},
   ];
   const DAYS_HEB_EXP=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
@@ -6528,6 +6529,12 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
       case 'boatResourceId':{
         let boat=boatMap[s.boatId||'']||boatMap[s.boatName||''];
         return boat?.resourceId||'';
+      }
+      case 'classroomResourceId':{
+        const clsName=s._classroomName||'';
+        if(!clsName) return '';
+        const clsBoat=(boats||[]).find(b=>b.type==='כיתה'&&b.name===clsName);
+        return clsBoat?.resourceId||'';
       }
       default:           return '';
     }
@@ -8335,7 +8342,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const [dragEvId,setDragEvId]=useState(null);
   const schedKey=`schedule_${month}`;
   const [editModalItem,setEditModalItem]=useState(null);
-  const CLASSROOMS_LIST=['מגלן','כיתה 3'];
+  const CLASSROOMS_LIST=useMemo(()=>boats.filter(b=>b.type==='כיתה').map(b=>b.name),[boats]);
   const [clsDlg,setClsDlg]=useState(null);
   const [clsActId,setClsActId]=useState('');
   const [clsStart,setClsStart]=useState('09:00');
