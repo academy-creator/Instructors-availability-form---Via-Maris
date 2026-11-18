@@ -160,7 +160,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v7.05';
+const SCHEDULER_VERSION = 'v7.13';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -779,8 +779,17 @@ function App(){
               const monthAvailability=Object.fromEntries(Object.entries(availability).filter(([k])=>k.endsWith('_'+month)));
               const monthCrmEvents=(crmEvents||[]).filter(e=>{
                 const d=e.startDate||e.date||'';
-                return d.startsWith(month);
+                if(!d)return false;
+                const eventEnd=e.endDate||d;
+                const [my,mm]=month.split('-');
+                const mStr=mm.padStart(2,'0');
+                const monthStart=`${my}-${mStr}-01`;
+                const ld=new Date(Number(my),Number(mm),0).getDate();
+                const monthEnd=`${my}-${mStr}-${ld.toString().padStart(2,'0')}`;
+                return d<=monthEnd && eventEnd>=monthStart;
               });
+              const excelFields=(()=>{try{return JSON.parse(localStorage.getItem('sch_excel_fields'))||null;}catch{return null;}})();
+              const portalOpenDate=(()=>{try{return localStorage.getItem('sch_portal_open_date')||'';}catch{return '';}})();
               const data={
                 instructors, activities, month,
                 availability:monthAvailability,
@@ -788,6 +797,8 @@ function App(){
                 boats, crmEvents:monthCrmEvents, roomBoatMap, sheetSkills, inbox,
                 daylightStart, daylightEnd,
                 weeklySelections:curWeeklySelections, katCourses,
+                ...(excelFields&&{excelFields}),
+                ...(portalOpenDate&&{portalOpenDate}),
                 _exportedAt: new Date().toISOString(),
                 _version: SCHEDULER_VERSION,
               };
@@ -842,6 +853,8 @@ function App(){
                     if(d.month)setMonth(d.month);
                     if(d.weeklySelections)setWeeklySelections(prev=>({...prev,[d.month||month]:d.weeklySelections}));
                     if(d.katCourses)setKatCourses(d.katCourses);
+                    if(d.excelFields){try{localStorage.setItem('sch_excel_fields',JSON.stringify(d.excelFields));}catch{}}
+                    if(d.portalOpenDate){try{localStorage.setItem('sch_portal_open_date',d.portalOpenDate);}catch{}}
                   }else{
                     if(d.instructors)setInstructors(p=>[...p,...d.instructors.filter(x=>!p.find(y=>y.id===x.id))]);
                     if(d.activities)setActivities(p=>[...p,...d.activities.filter(x=>!p.find(y=>y.id===x.id))]);
@@ -851,6 +864,8 @@ function App(){
                     if(d.assignments)setAssignments(p=>({...p,...d.assignments}));
                     if(d.weeklySelections)setWeeklySelections(p=>({...p,[d.month||month]:{...(p[d.month||month]||{}),...d.weeklySelections}}));
                     if(d.katCourses)setKatCourses(d.katCourses);
+                    if(d.excelFields){try{localStorage.setItem('sch_excel_fields',JSON.stringify(d.excelFields));}catch{}}
+                    if(d.portalOpenDate){try{localStorage.setItem('sch_portal_open_date',d.portalOpenDate);}catch{}}
                   }
                   const counts=[];
                   if(d.instructors) counts.push(`${d.instructors.length} מדריכים`);
@@ -1475,6 +1490,8 @@ function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,dayli
                             <th>שם פעילות</th>
                             <th>מזהה</th>
                             <th>קהל יעד</th>
+                            <th>סטאטוס</th>
+                            <th style={{maxWidth:120}}>תיאור</th>
                             <th>אורך</th>
                             <th>סה״כ/חודש</th>
                             <th>מדריכים</th>
@@ -1490,6 +1507,8 @@ function ActivitiesTab({activities,setActivities,allSkills,boats,showToast,dayli
                               <td style={{fontWeight:600}}>{a.name}{(a.totalPerMonth||0)===0?' (מושבת)':''}{(a.specificDates&&a.specificDates.length>0)?' 📅':''}</td>
                               <td style={{fontSize:12,color:'var(--text-light)',fontFamily:'monospace'}}>{a.activityExtId||<span style={{color:'#ccc'}}>—</span>}</td>
                               <td style={{fontSize:12}}>{a.targetAudience==='student'?'תלמיד':a.targetAudience==='skipper'?'סקיפר':a.targetAudience==='both'?'תלמיד+סקיפר':<span style={{color:'#ccc'}}>—</span>}</td>
+                              <td style={{fontSize:11}}>{(()=>{const st=a.status||'חדשה';const c={'חדשה':'#3b82f6','נפתח להרשמה':'#16a34a','מושעה':'#f97316','הסתיימה':'#64748b','PRESET':'#7c3aed','סגורה להרשמה':'#dc2626','ממתין לפרסום':'#d97706','בוטלה':'#6b7280'};return<span style={{background:c[st]||'#94a3b8',color:'#fff',padding:'1px 7px',borderRadius:5,fontSize:10,fontWeight:600,whiteSpace:'nowrap'}}>{st}</span>;})()} </td>
+                              <td style={{fontSize:11,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={a.description||''}>{a.description?a.description.slice(0,30)+(a.description.length>30?'…':''):<span style={{color:'#ccc'}}>—</span>}</td>
                               <td style={{fontSize:13}}>{a.durationHours||3}ש'</td>
                               <td style={{fontWeight:600,fontSize:14}}>{a.totalPerMonth||0}</td>
                               <td style={{fontSize:13}}>{a.instructorsNeeded||1}</td>
@@ -1556,6 +1575,10 @@ function ActivityModal({activity,boats,onSave,onClose}){
   const [allowGuest,setAllowGuest]=useState(activity?.allowGuest ?? false);
   const [activityExtId,setActivityExtId]=useState(activity?.activityExtId||'');
   const [targetAudience,setTargetAudience]=useState(activity?.targetAudience||'student');
+  const [description,setDescription]=useState(activity?.description||'');
+  const [activityStatus,setActivityStatus]=useState(activity?.status||'חדשה');
+  const [bookingFrequency,setBookingFrequency]=useState(activity?.bookingFrequency||'');
+  const [excludeFromExport,setExcludeFromExport]=useState(activity?.excludeFromExport||false);
   const [hasSecondaryResource,setHasSecondaryResource]=useState(activity?.secondaryResource!=null);
   const [secondaryResourceType,setSecondaryResourceType]=useState(activity?.secondaryResource?.type||'classroom');
   const [secondaryResourceTiming,setSecondaryResourceTiming]=useState(activity?.secondaryResource?.timing||'first1');
@@ -1603,6 +1626,44 @@ function ActivityModal({activity,boats,onSave,onClose}){
               <option value="skipper">סקיפר</option>
               <option value="both">תלמיד + סקיפר</option>
             </select>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group" style={{flex:1.5}}>
+            <label>סטאטוס פעילות</label>
+            <select value={activityStatus} onChange={e=>setActivityStatus(e.target.value)}>
+              <option value="חדשה">חדשה</option>
+              <option value="נפתח להרשמה">נפתח להרשמה</option>
+              <option value="מושעה">מושעה</option>
+              <option value="הסתיימה">הסתיימה</option>
+              <option value="PRESET">PRESET</option>
+              <option value="סגורה להרשמה">סגורה להרשמה</option>
+              <option value="ממתין לפרסום">ממתין לפרסום</option>
+              <option value="בוטלה">בוטלה</option>
+            </select>
+          </div>
+          <div className="form-group" style={{flex:1.5}}>
+            <label>טווח הזמנה</label>
+            <select value={bookingFrequency} onChange={e=>setBookingFrequency(e.target.value)}>
+              <option value="">-None-</option>
+              <option value="פעם בשבוע">פעם בשבוע</option>
+              <option value="פעם בחודש">פעם בחודש</option>
+              <option value="פעם ברבעון">פעם ברבעון</option>
+              <option value="פעם בחצי שנה">פעם בחצי שנה</option>
+              <option value="פעם בשנה">פעם בשנה</option>
+            </select>
+          </div>
+          <div className="form-group" style={{flex:1,display:'flex',alignItems:'flex-end',paddingBottom:6}}>
+            <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontWeight:400,fontSize:13}}>
+              <input type="checkbox" checked={excludeFromExport} onChange={e=>setExcludeFromExport(e.target.checked)} style={{width:15,height:15,cursor:'pointer'}}/>
+              הגרע מייצוא אקסל
+            </label>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group" style={{flex:1}}>
+            <label>תיאור (אופציונלי)</label>
+            <textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2} style={{resize:'vertical',fontFamily:'inherit',fontSize:13}} placeholder="למשל: סילבוס, URL, הערות..."/>
           </div>
         </div>
         <div className="form-row">
@@ -1829,7 +1890,11 @@ function ActivityModal({activity,boats,onSave,onClose}){
               allowGuest: allowGuest,
               secondaryResource: hasSecondaryResource?{type:secondaryResourceType,timing:secondaryResourceTiming}:null,
               activityExtId: activityExtId||'',
-              targetAudience: targetAudience||'student'
+              targetAudience: targetAudience||'student',
+              description: description.trim(),
+              status: activityStatus||'חדשה',
+              bookingFrequency: bookingFrequency||'',
+              excludeFromExport: excludeFromExport||false
             });
           }}>
             {activity?'עדכן':'הוסף'}
@@ -2154,7 +2219,7 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
   // Visual L→R: עידו ושתי אסתר רוני כרמל גת כרמן מישל נאווה רונית ליאור דניאל סבא שמשון קטמנדו | כיתה 3 מגלן
   // RTL table: first DOM col = visually rightmost → reverse desired visual order for array
   const BOAT_COL_ORDER=['קטמנדו','סבא שמשון','דניאל','ליאור','רונית','נאווה','מישל','כרמן','כרמל גת','רוני','אסתר','ושתי','עידו'];
-  const CLASS_COL_ORDER=boats.filter(b=>b.type==='כיתה').map(b=>b.name);
+  const CLASS_COL_ORDER=(()=>{const c=boats.filter(b=>b.type==='כיתה').map(b=>b.name);return c.length?c:['מגלן','כיתה 3'];})();
   const sortedBoats=useMemo(()=>[...boats].sort((a,b)=>{
     const ia=BOAT_COL_ORDER.indexOf(a.name),ib=BOAT_COL_ORDER.indexOf(b.name);
     if(ia===-1&&ib===-1)return(a.name||'').localeCompare(b.name||'','he');
@@ -2201,9 +2266,9 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
   const crmDayEvents = crmEvents.filter(e=>{
     const d = e.startDate;
     if (!d) return false;
-    // ISO: YYYY-MM-DD or YYYY-MM-DDTHH:...
+    // ISO: YYYY-MM-DD — support multi-day events (e.g. אספנה) via range [startDate,endDate]
     const iso = d.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-    if (iso) return Number(iso[1])===y && Number(iso[2])===mNum && Number(iso[3])===selDate;
+    if (iso) { const eventEnd=e.endDate||d; return dateStr>=d&&dateStr<=eventEnd; }
     // DD/MM/YYYY
     const dmy = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
     if (dmy) return Number(dmy[3])===y && Number(dmy[2])===mNum && Number(dmy[1])===selDate;
@@ -2487,14 +2552,27 @@ function CalendarDayView({boats, instructors, assignments, crmEvents, roomBoatMa
   );
 }
 
-function BoatEventsByDate({monthEvents,roomBoatMap,boats,stripHtml}){
+function BoatEventsByDate({monthEvents,roomBoatMap,boats,stripHtml,viewMonth}){
   const [openDates,setOpenDates]=useState(()=>new Set());
   const toggle=(d)=>setOpenDates(prev=>{const n=new Set(prev);n.has(d)?n.delete(d):n.add(d);return n;});
   const byDate=useMemo(()=>{
     const map={};
-    monthEvents.forEach(e=>{const d=e.startDate||'?';if(!map[d])map[d]=[];map[d].push(e);});
+    let clampStart='',clampEnd='';
+    if(viewMonth){const[vy,vm]=viewMonth.split('-').map(Number);const mStr=vm.toString().padStart(2,'0');clampStart=`${vy}-${mStr}-01`;const ld=new Date(vy,vm,0).getDate();clampEnd=`${vy}-${mStr}-${ld.toString().padStart(2,'0')}`;}
+    monthEvents.forEach(e=>{
+      const start=e.startDate||'?';
+      const end=e.endDate||start;
+      if(start==='?'||end<=start){if(!map[start])map[start]=[];map[start].push(e);return;}
+      let cur=new Date(start+'T12:00:00');
+      const endD=new Date(end+'T12:00:00');
+      while(cur<=endD){
+        const d=cur.toISOString().slice(0,10);
+        if((!clampStart||d>=clampStart)&&(!clampEnd||d<=clampEnd)){if(!map[d])map[d]=[];map[d].push(e);}
+        cur.setDate(cur.getDate()+1);
+      }
+    });
     return Object.entries(map).sort((a,b)=>a[0].localeCompare(b[0]));
-  },[monthEvents]);
+  },[monthEvents,viewMonth]);
   return(
     <div style={{display:'flex',flexDirection:'column',gap:4}}>
       {byDate.map(([date,evs])=>{
@@ -2552,10 +2630,14 @@ function BoatAvailabilityTab({boats, crmEvents, setCrmEvents, roomBoatMap, setRo
   const monthEvents = useMemo(()=>{
     if(!viewMonth) return [];
     const [y,m] = viewMonth.split('-').map(Number);
+    const mStr=m.toString().padStart(2,'0');
+    const monthStart=`${y}-${mStr}-01`;
+    const lastDay=new Date(y,m,0).getDate();
+    const monthEnd=`${y}-${mStr}-${lastDay.toString().padStart(2,'0')}`;
     return crmEvents.filter(e=>{
       if(!e.startDate) return false;
-      const [ey,em] = e.startDate.split('-').map(Number);
-      return ey===y && em===m;
+      const eventEnd=e.endDate||e.startDate;
+      return e.startDate<=monthEnd && eventEnd>=monthStart;
     }).sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||'') || (a.startHour||'').localeCompare(b.startHour||''));
   }, [crmEvents, viewMonth]);
 
@@ -2654,7 +2736,7 @@ function BoatAvailabilityTab({boats, crmEvents, setCrmEvents, roomBoatMap, setRo
         {monthEvents.length===0 ? (
           <div className="empty-state"><div className="icon">📅</div><p>אין אירועים בחודש זה. לחץ "📥 ייבא מ-CRM" כדי לייבא.</p></div>
         ) : (
-          <BoatEventsByDate monthEvents={monthEvents} roomBoatMap={roomBoatMap} boats={boats} stripHtml={stripHtml}/>
+          <BoatEventsByDate monthEvents={monthEvents} roomBoatMap={roomBoatMap} boats={boats} stripHtml={stripHtml} viewMonth={viewMonth}/>
         )}
       </div>
 
@@ -3202,8 +3284,9 @@ function ScheduleTab({instructors,activities,boats,availability,setAvailability,
               if (!e.startDate || !e.startHour) continue;
               const mappedBoat = roomBoatMap?.[e.roomId];
               if (mappedBoat !== boat.id) continue;
-              const [ey, eM, ed] = e.startDate.split('-').map(Number);
-              if (ey !== yY || eM !== mM || ed !== d.date) continue;
+              const curDay=`${yY}-${mM.toString().padStart(2,'0')}-${d.date.toString().padStart(2,'0')}`;
+              const eventEnd=e.endDate||e.startDate;
+              if(curDay<e.startDate||curDay>eventEnd)continue;
               if (isCrmEventMoveable(e.text)) continue;
               const [esH, esM] = e.startHour.split(':').map(Number);
               const [eeH, eeM] = (e.endHour||'23:59').split(':').map(Number);
@@ -5856,10 +5939,13 @@ function ScheduleTab({instructors,activities,boats,availability,setAvailability,
                       </td>
                       <td style={{fontWeight:600}}>{item.activityName}</td>
                       <td>
-                        <select value={item.boatId || ''} onChange={e=>editBoat(item.id, e.target.value)} style={{fontSize:12, minWidth:90, border: item._userEdited?'1px solid var(--primary)':'1px solid var(--border)'}}>
-                          <option value="">— ללא ספינה —</option>
-                          {boats.map(b => <option key={b.id} value={b.id}>{b.name} {b.type?`(${b.type})`:''}</option>)}
-                        </select>
+                        {item._classroomName
+                          ?<span style={{fontSize:12,color:'#065f46',background:'#d1fae5',padding:'2px 8px',borderRadius:6,display:'inline-block'}}>📚 {item._classroomName}</span>
+                          :<select value={item.boatId || ''} onChange={e=>editBoat(item.id, e.target.value)} style={{fontSize:12, minWidth:90, border: item._userEdited?'1px solid var(--primary)':'1px solid var(--border)'}}>
+                            <option value="">— ללא ספינה —</option>
+                            {boats.map(b => <option key={b.id} value={b.id}>{b.name} {b.type?`(${b.type})`:''}</option>)}
+                          </select>
+                        }
                       </td>
                       <td>
                         <select value={item.instructorId || ''} onChange={e => editInstructor(item.id, e.target.value)}
@@ -6390,6 +6476,10 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
     {value:'instructorTeamId',label:'מזהה צוות (מדריך)'},
     {value:'boatResourceId',label:'מזהה משאב (סירה)'},
     {value:'classroomResourceId',label:'מזהה משאב (כיתה)'},
+    {value:'activityDescription',label:'תיאור פעילות'},
+    {value:'activityStatus',label:'סטאטוס פעילות'},
+    {value:'portalOpenDate',label:'תאריך פתיחה בפורטל (חדשה)'},
+    {value:'activityBookingFrequency',label:'טווח הזמנה'},
     {value:'constant',    label:'ערך קבוע'},
   ];
   const DAYS_HEB_EXP=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
@@ -6419,6 +6509,7 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
   const [fields,setFields]=React.useState(loadFields);
   const [draggingIdx,setDraggingIdx]=React.useState(null);
   const [dropIdx,setDropIdx]=React.useState(null);
+  const [portalOpenDate,setPortalOpenDate]=React.useState(()=>{try{return localStorage.getItem('sch_portal_open_date')||'';}catch{return '';}});
 
   const save=(flds)=>{
     setFields(flds);
@@ -6543,6 +6634,27 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
         const clsBoat=(boats||[]).find(b=>b.type==='כיתה'&&b.name===clsName);
         return clsBoat?.resourceId||'';
       }
+      case 'activityDescription':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        return act?.description||'';
+      }
+      case 'activityStatus':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        return act?.status||'חדשה';
+      }
+      case 'portalOpenDate':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        if(!act||(act.status||'חדשה')!=='חדשה')return '';
+        return portalOpenDate||'';
+      }
+      case 'activityBookingFrequency':{
+        let act=activityMap[s.activityName||''];
+        if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+        return act?.bookingFrequency||'';
+      }
       default:           return '';
     }
   };
@@ -6550,7 +6662,11 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
   const doExport=()=>{
     if(!window.XLSX){alert('ספריית XLSX לא נטענה. רענן את הדף.');return;}
     const[yy,mm]=month.split('-').map(Number);
-    const sorted=schedule.slice().sort((a,b)=>{
+    const sorted=schedule.slice().filter(s=>{
+      let act=activityMap[s.activityName||''];
+      if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
+      return !act?.excludeFromExport;
+    }).sort((a,b)=>{
       const d=a.date-b.date;
       if(d!==0)return d;
       return (a.startHour||'').localeCompare(b.startHour||'');
@@ -6639,6 +6755,14 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
             <button onClick={addField} style={{width:'100%',padding:'7px',border:'1px dashed #cbd5e1',borderRadius:7,background:'transparent',color:'var(--text-light)',fontSize:13,cursor:'pointer'}}>+ הוסף שדה</button>
           </div>
         </div>
+        {/* Portal date picker */}
+        {fields.some(f=>f.source==='portalOpenDate')&&(
+          <div style={{padding:'8px 18px',background:'#f0fdf4',borderTop:'1px solid #d1fae5',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+            <span style={{fontSize:12,fontWeight:600,color:'#065f46'}}>📅 תאריך פתיחה בפורטל</span>
+            <span style={{fontSize:11,color:'#6b7280'}}>(לפעילויות בסטאטוס "חדשה" בלבד)</span>
+            <input type="date" value={portalOpenDate} onChange={e=>{setPortalOpenDate(e.target.value);try{localStorage.setItem('sch_portal_open_date',e.target.value);}catch{}}} style={{fontSize:12,padding:'3px 8px',borderRadius:6,border:'1px solid #d1fae5'}}/>
+          </div>
+        )}
         {/* Footer */}
         <div style={{padding:'12px 18px',borderTop:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,background:'var(--card,#fff)'}}>
           <span style={{fontSize:12,color:'var(--text-light)'}}>הגדרות שדות נשמרות אוטומטית לשימוש חוזר</span>
@@ -8207,7 +8331,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
     });
   },[rawSched,selDate,weeklySelections,availability,month]);
 
-  const crmDayEvents=useMemo(()=>crmEvents.filter(e=>(e.startDate||e.date)===dateStr),[crmEvents,dateStr]);
+  const crmDayEvents=useMemo(()=>crmEvents.filter(e=>{const d=e.startDate||e.date;if(!d)return false;const eventEnd=e.endDate||d;return dateStr>=d&&dateStr<=eventEnd;}),[crmEvents,dateStr]);
 
   const eventsByBoat=useMemo(()=>{
     const map={};for(const b of boats)map[b.id]=[];
@@ -8349,7 +8473,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
   const [dragEvId,setDragEvId]=useState(null);
   const schedKey=`schedule_${month}`;
   const [editModalItem,setEditModalItem]=useState(null);
-  const CLASSROOMS_LIST=useMemo(()=>boats.filter(b=>b.type==='כיתה').map(b=>b.name),[boats]);
+  const CLASSROOMS_LIST=useMemo(()=>{const c=boats.filter(b=>b.type==='כיתה').map(b=>b.name);return c.length?c:['מגלן','כיתה 3'];},[boats]);
   const [clsDlg,setClsDlg]=useState(null);
   const [clsActId,setClsActId]=useState('');
   const [clsStart,setClsStart]=useState('09:00');
@@ -8376,7 +8500,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       }
     });
     return map;
-  },[crmDayEvents]);
+  },[crmDayEvents,CLASSROOMS_LIST]);
 
   const classroomManualEvents=useMemo(()=>{
     const map={};CLASSROOMS_LIST.forEach(cl=>map[cl]=[]);
@@ -8385,7 +8509,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
       if(map[cl])map[cl].push({id:s.id,startMin:timeToMin(s.startHour),endMin:timeToMin(s.endHour),title:s.activityName||'אירוע',subtitle:s.instructorName||'',color:'#10b981',textColor:'#fff',source:'classroom_manual'});
     });
     return map;
-  },[rawSched,selDate]);
+  },[rawSched,selDate,CLASSROOMS_LIST]);
 
   const buildClsLayout=(events)=>{
     const slots={};
@@ -8478,7 +8602,7 @@ function AssignmentDayView({boats,instructors,assignments,setAssignments,activit
         if(ok&&filterActSpecific&&(ev.title||'')!==filterActSpecific)ok=false;
         if(ok)evs.push(ev);
       });
-      crmEvents.filter(e=>(e.startDate||e.date)===ds).forEach(e=>{
+      crmEvents.filter(e=>{const d=e.startDate||e.date;if(!d)return false;const eventEnd=e.endDate||d;return ds>=d&&ds<=eventEnd;}).forEach(e=>{
         const bid=resolveBoatId(e.roomId);if(!bid)return;
         const stripped=stripHtml(e.text);const inst=extractParens(e.text);
         const ev={startMin:timeToMin(e.startHour),endMin:timeToMin(e.endHour||'23:59'),
@@ -8911,6 +9035,9 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
     if(!wasthiBoat)return null;
     return Object.entries(roomBoatMap||{}).find(([,bId])=>bId===wasthiBoat.id)?.[0]||null;
   },[wasthiBoat,roomBoatMap]);
+  const classroomBoat=React.useMemo(()=>boats.find(b=>b.type==='כיתה')||null,[boats]);
+  const classroomName=React.useMemo(()=>classroomBoat?.name||'מגלן',[classroomBoat]);
+  const classroomRoomId=React.useMemo(()=>{if(!classroomName)return null;return Object.entries(CLASSROOM_NAMES_BY_ROOM_ID).find(([,n])=>n===classroomName)?.[0]||null;},[classroomName]);
 
   const weekdays=React.useMemo(()=>{
     const dim=new Date(y,mNum,0).getDate();
@@ -8938,10 +9065,11 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
     const[eH]=slot.boatEnd.split(':').map(Number);
     const slotS=bH*60,slotE=eH*60;
     if(wasthiRoomId){
+      const curDay=`${y}-${String(mNum).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
       const busy=(crmEvents||[]).some(e=>{
         if(!e.startDate)return false;
-        const iso=e.startDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-        if(!iso||Number(iso[3])!==dayNum||Number(iso[2])!==mNum)return false;
+        const eventEnd=e.endDate||e.startDate;
+        if(curDay<e.startDate||curDay>eventEnd)return false;
         if(e.roomId&&String(e.roomId)!==String(wasthiRoomId))return false;
         const[esH,esM]=(e.startHour||'00:00').split(':').map(Number);
         const[eeH,eeM]=(e.endHour||'23:59').split(':').map(Number);
@@ -8958,6 +9086,31 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
     });
     return!busy2;
   },[wasthiBoat,wasthiRoomId,crmEvents,assignments,month]);
+  const isClassroomFree=React.useCallback((dayNum,slot)=>{
+    const[sH]=slot.classStart.split(':').map(Number);
+    const[eH]=slot.classEnd.split(':').map(Number);
+    const slotS=sH*60,slotE=eH*60;
+    if(classroomRoomId){
+      const curDay=`${y}-${String(mNum).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
+      const busy=(crmEvents||[]).some(e=>{
+        if(!e.startDate)return false;
+        const eventEnd=e.endDate||e.startDate;
+        if(curDay<e.startDate||curDay>eventEnd)return false;
+        if(e.roomId&&String(e.roomId)!==String(classroomRoomId))return false;
+        const[esH,esM]=(e.startHour||'00:00').split(':').map(Number);
+        const[eeH,eeM]=(e.endHour||'23:59').split(':').map(Number);
+        return(esH*60+esM)<slotE&&(eeH*60+eeM)>slotS;
+      });
+      if(busy)return false;
+    }
+    const sched=assignments[`schedule_${month}`]||[];
+    return!sched.some(s=>{
+      if(s._classroomName!==classroomName||s.date!==dayNum||!s.startHour)return false;
+      const[sh]=s.startHour.split(':').map(Number);
+      const[eh]=(s.endHour||'00:00').split(':').map(Number);
+      return sh*60<slotE&&eh*60>slotS;
+    });
+  },[classroomName,classroomRoomId,crmEvents,assignments,month,mNum]);
 
   const isInstFree=React.useCallback((inst,dayNum,slot)=>{
     const av=(availability&&availability[`${inst.id}_${month}`])||{};
@@ -8979,12 +9132,13 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
           const b1=isBoatFree(d1.date,slot);
           const b2=isBoatFree(d2.date,slot);
           if(b1===false||b2===false)return;
+          if(!isClassroomFree(d1.date,slot)||!isClassroomFree(d2.date,slot))return;
           opts.push({d1,d2,slot,key:`${inst.id}_${d1.date}_${slot.label}`});
         });
       });
       return{inst,opts};
     });
-  },[instructors,dayPairs,isInstFree,isBoatFree]);
+  },[instructors,dayPairs,isInstFree,isBoatFree,isClassroomFree]);
 
   const [selected,setSelected]=React.useState(new Set());
   const toggleSel=(key)=>setSelected(prev=>{const s=new Set(prev);s.has(key)?s.delete(key):s.add(key);return s;});
@@ -9009,7 +9163,7 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
         newItems.push({
           id:`katclass_${opt.key}_${dateNum}_${now+(idx++)}`,
           _katCourseId:courseId,
-          _classroomName:'מגלן',
+          _classroomName:classroomName,
           boatId:null,
           activityId:katAct.id,activityName:'קורס קטמרן',
           date:dateNum,dayOfWeek:dow,
