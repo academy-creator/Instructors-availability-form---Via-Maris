@@ -160,7 +160,7 @@ const SHEET_GID = '1261216829';
 
 const SUBMISSIONS_SHEET_ID = '1usGHx0o6JMMcOgKhpf4kC3AfgANgPMNnG5AZbqAyzTA';
 const SUBMISSIONS_SHEET_GID = '0';
-const SCHEDULER_VERSION = 'v7.13';
+const SCHEDULER_VERSION = 'v7.16';
 
 function parseCsvRobust(text){
   const rows = []; let row = []; let cur = ''; let inQ = false;
@@ -6653,7 +6653,8 @@ function ExcelExportConfigModal({schedule,month,instructors,boats,activities,onC
       case 'activityBookingFrequency':{
         let act=activityMap[s.activityName||''];
         if(!act){const n=s.activityName||'';act=(activities||[]).find(a=>n.startsWith(a.name+' '))||null;}
-        return act?.bookingFrequency||'';
+        if(!act) return '';
+        return act.bookingFrequency||'-None-';
       }
       default:           return '';
     }
@@ -9122,23 +9123,30 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
     return true;
   },[availability,month]);
 
+  const isAlreadyAssigned=React.useCallback((instId,d1Date,slot)=>{
+    const sched=assignments[`schedule_${month}`]||[];
+    return sched.some(s=>s.source==='katamaran_wizard'&&s.instructorId===instId&&s.date===d1Date&&s.startHour===slot.boatStart);
+  },[assignments,month]);
+
   const instOptions=React.useMemo(()=>{
     const katInsts=instructors.filter(i=>(i.skills||[]).some(s=>s==='קטמרן'||s==='קורס קטמרן'));
     return katInsts.map(inst=>{
       const opts=[];
       dayPairs.forEach(({d1,d2})=>{
         SLOTS.forEach(slot=>{
+          const key=`${inst.id}_${d1.date}_${slot.label}`;
+          if(isAlreadyAssigned(inst.id,d1.date,slot)){opts.push({d1,d2,slot,key,assigned:true});return;}
           if(!isInstFree(inst,d1.date,slot)||!isInstFree(inst,d2.date,slot))return;
           const b1=isBoatFree(d1.date,slot);
           const b2=isBoatFree(d2.date,slot);
           if(b1===false||b2===false)return;
           if(!isClassroomFree(d1.date,slot)||!isClassroomFree(d2.date,slot))return;
-          opts.push({d1,d2,slot,key:`${inst.id}_${d1.date}_${slot.label}`});
+          opts.push({d1,d2,slot,key,assigned:false});
         });
       });
       return{inst,opts};
     });
-  },[instructors,dayPairs,isInstFree,isBoatFree,isClassroomFree]);
+  },[instructors,dayPairs,isInstFree,isBoatFree,isClassroomFree,isAlreadyAssigned]);
 
   const [selected,setSelected]=React.useState(new Set());
   const toggleSel=(key)=>setSelected(prev=>{const s=new Set(prev);s.has(key)?s.delete(key):s.add(key);return s;});
@@ -9192,7 +9200,22 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
   };
 
   const totalKatInsts=instOptions.length;
-  const totalOpts=instOptions.reduce((s,{opts})=>s+opts.length,0);
+  const totalAvailable=instOptions.reduce((s,{opts})=>s+opts.filter(o=>!o.assigned).length,0);
+  const totalAssigned=instOptions.reduce((s,{opts})=>s+opts.filter(o=>o.assigned).length,0);
+
+  const dayOptions=React.useMemo(()=>{
+    const map={};
+    instOptions.forEach(({inst,opts})=>{
+      opts.forEach(opt=>{
+        [opt.d1.date,opt.d2.date].forEach(date=>{
+          if(!map[date])map[date]=[];
+          map[date].push({opt,inst});
+        });
+      });
+    });
+    Object.values(map).forEach(arr=>arr.sort((a,b)=>a.opt.slot.classStart.localeCompare(b.opt.slot.classStart)||a.inst.name.localeCompare(b.inst.name)));
+    return map;
+  },[instOptions]);
 
   return(
     <div style={{direction:'rtl',padding:16}}>
@@ -9203,36 +9226,64 @@ function KatamaranWizard({instructors,activities,boats,crmEvents,roomBoatMap,ava
         </span>}
       </div>
       <div style={{fontSize:12,color:'var(--text-light)',marginBottom:14}}>
-        {totalKatInsts} מדריכים מוסמכים · {totalOpts} אפשרויות זמינות. סמן ולחץ שבץ.
+        {totalKatInsts} מדריכים מוסמכים · {totalAvailable} אפשרויות זמינות{totalAssigned>0?` · ${totalAssigned} שובצו`:''}.{totalAvailable>0?' סמן ולחץ שבץ.':''}
       </div>
-      {instOptions.map(({inst,opts})=>(
-        <div key={inst.id} style={{background:'var(--card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'12px 14px',marginBottom:10}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:opts.length?8:0}}>
-            <span style={{fontWeight:600,fontSize:13}}>{inst.name}</span>
-            {opts.length===0
-              ?<span style={{fontSize:11,color:'var(--text-light)'}}>אין אפשרויות זמינות</span>
-              :<span style={{fontSize:11,color:'var(--text-light)'}}>({opts.length} אפשרויות)</span>
-            }
-          </div>
-          {opts.length>0&&(
-            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-              {opts.map(opt=>{
-                const isSel=selected.has(opt.key);
-                return(
-                  <label key={opt.key} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:8,border:`1px solid ${isSel?'var(--primary,#2563eb)':'var(--border)'}`,background:isSel?'#eff6ff':'var(--bg-secondary,#f8fafc)',cursor:'pointer',fontSize:11,userSelect:'none'}}>
-                    <input type="checkbox" checked={isSel} onChange={()=>toggleSel(opt.key)} style={{margin:0}}/>
-                    <span style={{fontWeight:500}}>{opt.slot.label}</span>
-                    <span style={{color:'var(--text-light)',marginRight:3}}>{opt.d1.dayName} {opt.d1.date}/{String(mNum).padStart(2,'0')} + {opt.d2.dayName} {opt.d2.date}/{String(mNum).padStart(2,'0')}</span>
-                  </label>
-                );
-              })}
+      {totalKatInsts===0
+        ?<div style={{textAlign:'center',color:'var(--text-light)',fontSize:13,padding:24}}>אין מדריכים עם כישור קטמרן</div>
+        :(()=>{
+          const dim=new Date(y,mNum,0).getDate();
+          const DOW_LABELS=['א','ב','ג','ד','ה','ו','ש'];
+          const calDays=[];
+          const firstDow=new Date(y,mNum-1,1).getDay();
+          for(let i=0;i<firstDow;i++)calDays.push(null);
+          for(let d=1;d<=dim;d++)calDays.push({date:d,dow:new Date(y,mNum-1,d).getDay()});
+          while(calDays.length%7!==0)calDays.push(null);
+          const weeks=[];
+          for(let i=0;i<calDays.length;i+=7)weeks.push(calDays.slice(i,i+7));
+          return(
+            <div style={{background:'var(--card,#fff)',border:'0.5px solid var(--border)',borderRadius:12,padding:'10px 12px',marginBottom:12,overflowX:'auto',minWidth:600}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3,marginBottom:4}}>
+                {DOW_LABELS.map(l=><div key={l} style={{textAlign:'center',fontSize:10,fontWeight:600,color:'var(--text-light)'}}>{l}</div>)}
+              </div>
+              {weeks.map((week,wi)=>(
+                <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3,marginBottom:3}}>
+                  {week.map((day,di)=>{
+                    if(!day)return <div key={di} style={{minHeight:60}}/>;
+                    const opts=dayOptions[day.date]||[];
+                    const isSat=day.dow===6;
+                    return(
+                      <div key={di} style={{minHeight:60,background:isSat?'var(--bg-secondary,#f8fafc)':'transparent',border:'0.5px solid var(--border)',borderRadius:4,padding:'3px 4px'}}>
+                        <div style={{fontWeight:600,fontSize:11,color:isSat?'var(--text-light)':'var(--text)',marginBottom:2}}>{day.date}</div>
+                        {opts.map(({opt,inst},oi)=>{
+                          const isSel=selected.has(opt.key);
+                          if(opt.assigned)return(
+                            <div key={oi}
+                              style={{borderRadius:3,padding:'2px 6px',marginBottom:2,fontSize:10,lineHeight:1.5,background:'#f0fdf4',border:'1px solid #86efac',color:'#15803d',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}
+                              title={`${inst.name} ${opt.slot.label} ✓ שובץ`}>
+                              ✓ {opt.slot.label} {inst.name.split(' ')[0]}
+                            </div>
+                          );
+                          return(
+                            <div key={oi} onClick={()=>toggleSel(opt.key)}
+                              style={{borderRadius:3,padding:'2px 6px',marginBottom:2,fontSize:10,lineHeight:1.5,
+                                background:isSel?'var(--primary,#2563eb)':'var(--bg-secondary,#f1f5f9)',
+                                border:`1px solid ${isSel?'var(--primary,#2563eb)':'var(--border)'}`,
+                                color:isSel?'#fff':'var(--text)',
+                                cursor:'pointer',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',userSelect:'none'}}
+                              title={`${inst.name} ${opt.slot.label} — ${opt.d1.dayName} ${opt.d1.date} + ${opt.d2.dayName} ${opt.d2.date}`}>
+                              {opt.slot.label} {inst.name.split(' ')[0]}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
-      ))}
-      {totalKatInsts===0&&(
-        <div style={{textAlign:'center',color:'var(--text-light)',fontSize:13,padding:24}}>אין מדריכים עם כישור קטמרן</div>
-      )}
+          );
+        })()
+      }
       <div style={{marginTop:12,display:'flex',gap:10,alignItems:'center'}}>
         <button onClick={assignSelected}
           disabled={!selected.size}
